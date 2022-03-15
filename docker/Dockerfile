@@ -37,6 +37,10 @@ RUN apt-get update && \
     pip install --no-cache-dir . && \
     cd .. && \
     rm -rf d3rlpy-master master.zip
+    pip install -U numpy
+    apt-get update
+    apt-get install libosmesa6-dev libgl1-mesa-glx libglfw3
+    apt-get install libglew2.0
 
 EXPOSE 6006
 
