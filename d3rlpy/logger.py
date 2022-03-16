@@ -9,6 +9,7 @@ import numpy as np
 import structlog
 from tensorboardX import SummaryWriter
 from typing_extensions import Protocol
+import wandb
 
 
 class _SaveProtocol(Protocol):
@@ -47,11 +48,12 @@ class D3RLPyLogger:
         save_metrics: bool = True,
         root_dir: str = "logs",
         verbose: bool = True,
-        with_timestamp: bool = True,
+        with_timestamp: bool = False,
     ):
         self._save_metrics = save_metrics
         self._verbose = verbose
-
+        
+         
         # add timestamp to prevent unintentional overwrites
         while True:
             if with_timestamp:
@@ -72,6 +74,10 @@ class D3RLPyLogger:
                     raise ValueError(f"{self._logdir} already exists.")
             else:
                 break
+        
+        # Add wandb
+        wandb.init(name=self._experiment_name,project="BASE", entity="offlinerl") #config=args, name="Expriment_name",
+
 
         self._metrics_buffer = {}
 
@@ -114,6 +120,7 @@ class D3RLPyLogger:
 
     def commit(self, epoch: int, step: int) -> Dict[str, float]:
         metrics = {}
+        wandb.log({f"epoch":epoch},step=step)
         for name, buffer in self._metrics_buffer.items():
 
             metric = sum(buffer) / len(buffer)
@@ -127,6 +134,7 @@ class D3RLPyLogger:
                     self._writer.add_scalar(f"metrics/{name}", metric, epoch)
 
             metrics[name] = metric
+            wandb.log({f"metrics/{name}":metric},step=step)
 
         if self._verbose:
             LOG.info(
@@ -135,7 +143,7 @@ class D3RLPyLogger:
                 step=step,
                 metrics=metrics,
             )
-
+        
         if self._params and self._writer:
             self._writer.add_hparams(
                 self._params,
@@ -143,7 +151,10 @@ class D3RLPyLogger:
                 name=self._experiment_name,
                 global_step=epoch,
             )
-
+        if self._params:
+            for k,v in self._params.items():
+               wandb.config.update({f"{k}":v}) 
+        wandb.save()
         # initialize metrics buffer
         self._metrics_buffer = {}
         return metrics
