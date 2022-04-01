@@ -1,4 +1,4 @@
-OUT_IMAGE="d3rlpy:1.0"
+OUT_IMAGE="xuanthanh/d3rl:v0"
 WORKSPACE="/mnt/hdd/thanh/workspace"
 NAME="thanh_d3rlpy"
 DOCKER_HOSTNAME=$(echo $HOSTNAME|cut -c5-)
