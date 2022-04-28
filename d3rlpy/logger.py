@@ -49,11 +49,12 @@ class D3RLPyLogger:
         root_dir: str = "logs",
         verbose: bool = True,
         with_timestamp: bool = False,
+        allow_overwrite: bool = False
     ):
         self._save_metrics = save_metrics
         self._verbose = verbose
-        
-         
+
+
         # add timestamp to prevent unintentional overwrites
         while True:
             if with_timestamp:
@@ -68,13 +69,16 @@ class D3RLPyLogger:
                     os.makedirs(self._logdir)
                     LOG.info(f"Directory is created at {self._logdir}")
                     break
-                if with_timestamp:
-                    time.sleep(1.0)
+                if allow_overwrite:
+                    break
                 else:
-                    raise ValueError(f"{self._logdir} already exists.")
+                    if with_timestamp:
+                        time.sleep(1.0)
+                    else:
+                        raise ValueError(f"{self._logdir} already exists.")
             else:
                 break
-        
+
         # Add wandb
         wandb.init(name=self._experiment_name,project="BASE", entity="offlinerl") #config=args, name="Expriment_name",
 
@@ -143,7 +147,7 @@ class D3RLPyLogger:
                 step=step,
                 metrics=metrics,
             )
-        
+
         if self._params and self._writer:
             self._writer.add_hparams(
                 self._params,
@@ -153,7 +157,7 @@ class D3RLPyLogger:
             )
         if self._params:
             for k,v in self._params.items():
-               wandb.config.update({f"{k}":v}) 
+               wandb.config.update({f"{k}":v})
         wandb.save()
         # initialize metrics buffer
         self._metrics_buffer = {}
@@ -165,6 +169,10 @@ class D3RLPyLogger:
             model_path = os.path.join(self._logdir, f"model_{epoch}.pt")
             algo.save_model(model_path)
             LOG.info(f"Model parameters are saved to {model_path}")
+
+    def close(self) -> None:
+        if self._writer:
+            self._writer.close()
 
     @contextmanager
     def measure_time(self, name: str) -> Iterator[None]:
