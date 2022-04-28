@@ -48,12 +48,13 @@ class D3RLPyLogger:
         save_metrics: bool = True,
         root_dir: str = "logs",
         verbose: bool = True,
-        with_timestamp: bool = False,
+        with_timestamp: bool = True,
         allow_overwrite: bool = False
     ):
         self._save_metrics = save_metrics
         self._verbose = verbose
 
+        self.job_type = experiment_name
 
         # add timestamp to prevent unintentional overwrites
         while True:
@@ -80,7 +81,7 @@ class D3RLPyLogger:
                 break
 
         # Add wandb
-        wandb.init(name=self._experiment_name,project="BASE", entity="offlinerl") #config=args, name="Expriment_name",
+        wandb.init(name=self._experiment_name,project="BASE", entity="aimrl",job_type=self.job_type) #config=args, 
 
 
         self._metrics_buffer = {}
