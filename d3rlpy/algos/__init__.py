@@ -18,6 +18,7 @@ from .random_policy import DiscreteRandomPolicy, RandomPolicy
 from .sac import SAC, DiscreteSAC
 from .td3 import TD3
 from .td3_plus_bc import TD3PlusBC
+from .td3_relational import TD3PlusRelation
 
 __all__ = [
     "AlgoBase",
