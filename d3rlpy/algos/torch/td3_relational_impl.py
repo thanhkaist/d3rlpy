@@ -79,9 +79,10 @@ class TD3PlusRelationImpl(TD3Impl):
         self.log_metrics ={}
         self.log_metrics.update({"absQmean":(q_t.abs().mean()).detach().cpu()})
 
-        logits_q = torch.einsum("nc,kc->nk", [action, action])
+        logits_q = torch.einsum("nc,kc->nk", [action, batch.actions])
         logits_k = torch.einsum("nc,kc->nk", [batch.actions, batch.actions])
         enable_BC = False
+
         lossRelation = -torch.sum(
             F.softmax(logits_k.detach() / temperature_k, dim=1)
             * F.log_softmax(logits_q / temperature_q, dim=1),
@@ -92,4 +93,4 @@ class TD3PlusRelationImpl(TD3Impl):
         self.log_metrics.update({"RelationLoss":lossRelation.detach().cpu()})
         self.log_metrics.update({"TD3Loss":-q_t.mean().detach().cpu()})
         self.log_metrics.update({"BCLoss":((batch.actions - action.detach()) ** 2).mean().cpu()})
-        return lam * -q_t.mean() + lossRelation #+enable_BC*((batch.actions - action) ** 2).mean()
+        return lam * -q_t.mean() + lossRelation +enable_BC*((batch.actions - action) ** 2).mean()
