@@ -19,6 +19,7 @@ from .sac import SAC, DiscreteSAC
 from .td3 import TD3
 from .td3_plus_bc import TD3PlusBC
 from .td3_relational import TD3PlusRelation
+from .cql_aug import CQLAug, DiscreteCQLAug
 
 __all__ = [
     "AlgoBase",
@@ -31,6 +32,8 @@ __all__ = [
     "COMBO",
     "CQL",
     "DiscreteCQL",
+    "CQLAug",
+    "DiscreteCQLAug",
     "CRR",
     "DDPG",
     "DQN",
@@ -55,6 +58,7 @@ DISCRETE_ALGORITHMS: Dict[str, Type[AlgoBase]] = {
     "bc": DiscreteBC,
     "bcq": DiscreteBCQ,
     "cql": DiscreteCQL,
+    "cql_aug": DiscreteCQLAug,
     "dqn": DQN,
     "double_dqn": DoubleDQN,
     "nfq": NFQ,
@@ -69,6 +73,7 @@ CONTINUOUS_ALGORITHMS: Dict[str, Type[AlgoBase]] = {
     "bear": BEAR,
     "combo": COMBO,
     "cql": CQL,
+    "cql_aug": CQLAug,
     "crr": CRR,
     "ddpg": DDPG,
     "iql": IQL,
