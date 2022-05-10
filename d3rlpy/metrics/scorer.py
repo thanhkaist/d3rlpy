@@ -8,6 +8,8 @@ from ..dataset import Episode, TransitionMiniBatch
 from ..preprocessing.reward_scalers import RewardScaler
 from ..preprocessing.stack import StackedObservation
 
+import d4rl
+
 WINDOW_SIZE = 1024
 
 
@@ -404,7 +406,7 @@ def discrete_action_match_scorer(
 
 def evaluate_on_environment(
     env: gym.Env, n_trials: int = 10, epsilon: float = 0.0, render: bool = False
-) -> Callable[..., float]:
+):
     """Returns scorer function of evaluation on environment.
 
     This function returns scorer function, which is suitable to the standard
@@ -440,6 +442,7 @@ def evaluate_on_environment(
 
 
     """
+    return_norm_score = True if env.env.spec.id in d4rl.infos.DATASET_URLS.keys() else False
 
     # for image observation
     observation_shape = env.observation_space.shape
@@ -483,7 +486,11 @@ def evaluate_on_environment(
                 if done:
                     break
             episode_rewards.append(episode_reward)
-        return float(np.mean(episode_rewards))
+        if return_norm_score:
+            unorm_score = float(np.mean(episode_rewards))
+            return unorm_score, env.env.wrapped_env.get_normalized_score(unorm_score) * 100
+        else:
+            return float(np.mean(episode_rewards))
 
     return scorer
 

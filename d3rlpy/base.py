@@ -820,7 +820,15 @@ class LearnableBase:
             test_score = scorer(self, episodes)
 
             # logging metrics
-            logger.add_metric(name, test_score)
+            if name == 'environment':
+                if isinstance(test_score, tuple) and len(test_score) > 1:
+                    unnorm_score, norm_score = test_score
+                    logger.add_metric(name, unnorm_score)
+                    logger.add_metric(name + "_normalized", norm_score)
+                else:
+                    logger.add_metric(name, test_score)
+            else:
+                logger.add_metric(name, test_score)
 
             # store metric locally
             if test_score is not None:
