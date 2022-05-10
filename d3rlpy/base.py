@@ -358,6 +358,7 @@ class LearnableBase:
         logdir: str = "d3rlpy_logs",
         allow_overwrite: bool = False,
         wandb_project: str ="BASE",
+        use_wandb: bool = True,
         verbose: bool = True,
         show_progress: bool = True,
         tensorboard_dir: Optional[str] = None,
@@ -417,6 +418,7 @@ class LearnableBase:
                 logdir,
                 allow_overwrite,
                 wandb_project,
+                use_wandb,
                 verbose,
                 show_progress,
                 tensorboard_dir,
@@ -441,6 +443,7 @@ class LearnableBase:
         logdir: str = "d3rlpy_logs",
         allow_overwrite: bool = False,
         wandb_project: str ="BASE",
+        use_wandb: bool = True,
         verbose: bool = True,
         show_progress: bool = True,
         tensorboard_dir: Optional[str] = None,
@@ -557,7 +560,8 @@ class LearnableBase:
             verbose,
             tensorboard_dir,
             allow_overwrite=allow_overwrite,
-            wandb_project=wandb_project
+            wandb_project=wandb_project,
+            use_wandb=use_wandb
         )
 
         # add reference to active logger to algo class during fit
@@ -785,7 +789,8 @@ class LearnableBase:
         verbose: bool,
         tensorboard_dir: Optional[str],
         allow_overwrite: bool = False,
-        wandb_project: str="BASE"
+        wandb_project: str="BASE",
+        use_wandb: bool = True
     ) -> D3RLPyLogger:
         if experiment_name is None:
             experiment_name = self.__class__.__name__
@@ -798,7 +803,8 @@ class LearnableBase:
             tensorboard_dir=tensorboard_dir,
             with_timestamp=with_timestamp,
             allow_overwrite=allow_overwrite,
-            wandb_project=wandb_project
+            wandb_project=wandb_project,
+            use_wandb=use_wandb
         )
 
         return logger
