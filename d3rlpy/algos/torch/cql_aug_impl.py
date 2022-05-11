@@ -66,6 +66,7 @@ def clamp(x, vec_min, vec_max):
 
 def normalize(x, min, max):
     x = (x - min)/(max - min)
+    assert (0.0 <= x).all() and (x >= 1.0).all()
     return x
 
 
