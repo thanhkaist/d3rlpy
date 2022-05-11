@@ -166,6 +166,7 @@ class CQLAug(AlgoBase):
         impl: Optional[CQLAugImpl] = None,
         transform: str = 'gaussian',
         transform_params: dict = None,
+        env_name: str = '',
         **kwargs: Any,
     ):
         super().__init__(
@@ -199,8 +200,10 @@ class CQLAug(AlgoBase):
         self._soft_q_backup = soft_q_backup
         self._use_gpu = check_use_gpu(use_gpu)
         self._impl = impl
+
         self._transform = transform
         self._transform_params = transform_params
+        self._env_name = env_name
 
     def _create_impl(
         self, observation_shape: Sequence[int], action_size: int
@@ -233,7 +236,8 @@ class CQLAug(AlgoBase):
             action_scaler=self._action_scaler,
             reward_scaler=self._reward_scaler,
             transform=self._transform,
-            transform_params=self._transform_params
+            transform_params=self._transform_params,
+            env_name=self._env_name
         )
         self._impl.build()
 

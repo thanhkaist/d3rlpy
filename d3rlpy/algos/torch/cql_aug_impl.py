@@ -19,6 +19,61 @@ from .dqn_impl import DoubleDQNImpl
 from .sac_impl import SACImpl
 
 
+ENV_OBS_RANGE = {
+    'walker2d-v0': dict(
+        max=[1.8164345026016235, 0.999911367893219, 0.5447346568107605, 0.7205190062522888,
+             1.5128496885299683, 0.49508699774742126, 0.6822911500930786, 1.4933640956878662,
+             9.373093605041504, 5.691765308380127, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
+        min=[0.800006091594696, -0.9999997019767761, -3.006617546081543, -2.9548180103302,
+             -1.72023344039917, -2.9515464305877686, -3.0064914226531982, -1.7654582262039185,
+             -6.7458906173706055, -8.700752258300781, -10.0, -10.0, -10.0, -10.0, -10.0, -10.0,
+             -10.0]
+    ),
+    'hopper-v0': dict(
+        max=[1.7113906145095825, 0.1999576985836029, 0.046206455677747726, 0.10726844519376755,
+             0.9587112665176392, 5.919354438781738, 3.04956316947937, 6.732881546020508,
+             7.7671966552734375, 10.0, 10.0],
+        min=[0.7000009417533875, -0.1999843567609787, -1.540910243988037, -1.1928397417068481,
+             -0.9543644189834595, -1.6949318647384644, -5.237359523773193, -6.2852582931518555,
+             -10.0, -10.0, -10.0]
+    ),
+    'halfcheetah-v0': dict(
+        max=[1.600443959236145,22.812137603759766, 1.151809811592102, 0.949776291847229,
+             0.9498141407966614, 0.8997246026992798, 1.1168793439865112, 0.7931482791900635,
+             16.50477409362793, 5.933143138885498, 13.600515365600586, 27.84033203125,
+             30.474760055541992, 30.78533935546875, 30.62249755859375, 37.273799896240234,
+             31.570491790771484],
+        min=[-0.6028550267219543, -3.561767339706421, -0.7100794315338135, -1.0610754489898682,
+             -0.6364201903343201, -1.2164583206176758, -1.2236766815185547, -0.7376371026039124,
+             -3.824833869934082, -5.614060878753662, -12.930273056030273, -29.38336944580078,
+             -31.534399032592773, -27.823902130126953, -32.996246337890625, -30.887380599975586,
+             -30.41145896911621]
+    ),
+}
+
+
+def clamp(x, vec_min, vec_max):
+    if isinstance(vec_min, list):
+        vec_min = torch.Tensor(vec_min).to(x.device)
+    if isinstance(vec_max, list):
+        vec_max = torch.Tensor(vec_max).to(x.device)
+
+    assert isinstance(vec_min, torch.Tensor) and isinstance(vec_max, torch.Tensor)
+    x = torch.max(x, vec_min)
+    x = torch.min(x, vec_max)
+    return x
+
+
+def normalize(x, min, max):
+    x = (x - min)/(max - min)
+    return x
+
+
+def denormalize(x, min, max):
+    x = x * (max - min) + min
+    return x
+
+
 class CQLAugImpl(SACImpl):
 
     _alpha_learning_rate: float
@@ -60,7 +115,8 @@ class CQLAugImpl(SACImpl):
         action_scaler: Optional[ActionScaler],
         reward_scaler: Optional[RewardScaler],
         transform: str = 'gaussian',
-        transform_params: dict = None
+        transform_params: dict = None,
+        env_name: str = ''
     ):
         super().__init__(
             observation_shape=observation_shape,
@@ -90,8 +146,14 @@ class CQLAugImpl(SACImpl):
         self._conservative_weight = conservative_weight
         self._n_action_samples = n_action_samples
         self._soft_q_backup = soft_q_backup
+
         self._transform = transform
         self._transform_params = transform_params
+
+        env_name_ = env_name.split('-')
+        env_name = env_name_[0] + '-' + env_name_[-1]
+        self._obs_max = torch.Tensor(ENV_OBS_RANGE[env_name]['max']).to('cuda:{}'.format(self._use_gpu.get_id()))
+        self._obs_min = torch.Tensor(ENV_OBS_RANGE[env_name]['min']).to('cuda:{}'.format(self._use_gpu.get_id()))
 
         # initialized in build
         self._log_alpha = None
@@ -256,13 +318,42 @@ class CQLAugImpl(SACImpl):
         if self._transform in ['gaussian']:
             assert self._transform_params is not None, "Cannot find params for {} transform.".format(self._transform)
             epsilon = self._transform_params.get('epsilon', None)
+            norm_min_max = self._transform_params.get('norm_min_max', False)
             assert epsilon is not None, "Please provide the epsilon to perform {} transform.".format(self._transform)
-            noise = torch.randn_like(batch_aug.observations, dtype=batch_aug.observations.dtype,
-                                     device=batch_aug.observations.device) * epsilon
-            batch_aug._observations += noise
-            noise = torch.randn_like(batch_aug.observations, dtype=batch_aug.observations.dtype,
-                                     device=batch_aug.observations.device) * epsilon
-            batch_aug._next_observations += noise
+
+            if norm_min_max:
+                noise = torch.randn_like(batch_aug.observations, dtype=batch_aug.observations.dtype,
+                                         device=batch_aug.observations.device) * epsilon
+                batch_aug._observations = normalize(batch_aug._observations, self._obs_min,
+                                                    self._obs_max)
+                batch_aug._observations += noise
+                batch_aug._observations = torch.clamp(batch_aug._observations, 0, 1)
+                batch_aug._observations = denormalize(batch_aug._observations, self._obs_min,
+                                                      self._obs_max)
+
+                noise = torch.randn_like(batch_aug.observations, dtype=batch_aug.observations.dtype,
+                                         device=batch_aug.observations.device) * epsilon
+                batch_aug._next_observations = normalize(batch_aug._next_observations,
+                                                         self._obs_min, self._obs_max)
+                batch_aug._next_observations += noise
+                batch_aug._next_observations = torch.clamp(batch._next_observations, 0, 1)
+                batch_aug._next_observations = denormalize(batch_aug._next_observations,
+                                                           self._obs_min, self._obs_max)
+            else:
+                noise = torch.randn_like(batch_aug.observations, dtype=batch_aug.observations.dtype,
+                                         device=batch_aug.observations.device) * epsilon
+                batch_aug._observations += noise
+                batch_aug._observations = clamp(batch_aug._observations,
+                                                self._obs_min, self._obs_max)
+
+                noise = torch.randn_like(batch_aug.observations, dtype=batch_aug.observations.dtype,
+                                         device=batch_aug.observations.device) * epsilon
+                batch_aug._next_observations += noise
+                batch_aug._next_observations = clamp(batch._next_observations,
+                                                     self._obs_min, self._obs_max)
+        elif self._transform in ['adversarial_training']:
+            # Using PGD with Linf-norm
+            pass
         else:
             raise NotImplementedError
         return batch, batch_aug
