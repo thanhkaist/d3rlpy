@@ -10,6 +10,7 @@ def main():
     parser.add_argument('--gpu', type=int)
     parser.add_argument('--exp', type=str, default='')
     parser.add_argument('--project', type=str, default='WALKER')
+    parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--logdir', type=str, default='d3rlpy_logs')
     args = parser.parse_args()
 
@@ -53,6 +54,7 @@ def main():
             'value_scale': d3rlpy.metrics.average_value_estimation_scorer,
         },
         wandb_project=args.project,
+        use_wandb=args.wandb,
         experiment_name=f"CQL_{args.dataset}_{args.exp}"
     )
 
