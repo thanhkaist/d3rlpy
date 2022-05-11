@@ -66,7 +66,7 @@ def clamp(x, vec_min, vec_max):
 
 def normalize(x, min, max):
     x = (x - min)/(max - min)
-    assert (0.0 <= x).all() and (x >= 1.0).all()
+    assert (0.0 <= x).all() and (x <= 1.0).all()
     return x
 
 
@@ -325,6 +325,7 @@ class CQLAugImpl(SACImpl):
             if norm_min_max:
                 noise = torch.randn_like(batch_aug.observations, dtype=batch_aug.observations.dtype,
                                          device=batch_aug.observations.device) * epsilon
+                import pdb; pdb.set_trace()
                 batch_aug._observations = normalize(batch_aug._observations, self._obs_min,
                                                     self._obs_max)
                 batch_aug._observations += noise
