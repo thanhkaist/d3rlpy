@@ -166,14 +166,15 @@ class CQLImpl(SACImpl):
         assert self._q_func is not None
         action, log_prob = self._policy.sample_with_log_prob(batch.observations)
         entropy = self._log_temp().exp() * log_prob
-        q_t = self._q_func(batch.observations, action, "min")
-
-        actor_loss = (entropy - q_t).mean()
 
         if self._current_train_step < self._policy_eval_start:
             tanh_normal = self._policy.dist(batch.observations)
             policy_log_prob = tanh_normal.log_prob(batch.actions)
             actor_loss = (entropy - policy_log_prob).mean()
+        else:
+            q_t = self._q_func(batch.observations, action, "min")
+
+            actor_loss = (entropy - q_t).mean()
 
         return actor_loss
 
