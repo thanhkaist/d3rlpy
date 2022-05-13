@@ -12,6 +12,7 @@ def main():
     parser.add_argument('--project', type=str, default='WALKER')
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--logdir', type=str, default='d3rlpy_logs')
+    parser.add_argument('--n_steps', type=int, default=1000000)
     args = parser.parse_args()
 
     dataset, env = d3rlpy.datasets.get_dataset(args.dataset)
@@ -24,10 +25,9 @@ def main():
 
     encoder = d3rlpy.models.encoders.VectorEncoderFactory([256, 256, 256])
 
-    if "medium-v0" in args.dataset:
-        conservative_weight = 10.0
-    else:
-        conservative_weight = 5.0
+    conservative_weight = 5.0
+    alpha_threshold = -1.0
+    policy_eval_start = 40000
 
     cql = d3rlpy.algos.CQL(
         actor_learning_rate=1e-4,
@@ -39,20 +39,20 @@ def main():
         n_action_samples=10,
         alpha_learning_rate=0.0,
         conservative_weight=conservative_weight,
-        alpha_threshold=-1.0,
+        alpha_threshold=alpha_threshold,
         use_gpu=args.gpu,
-        policy_eval_start=40000,
+        policy_eval_start=policy_eval_start,
     )
 
     cql.fit(
         dataset.episodes,
         eval_episodes=test_episodes,
-        n_steps=500000,
+        n_steps=args.n_steps,
         n_steps_per_epoch=1000,
         save_interval=10,
         logdir=args.logdir,
         scorers={
-            'environment': d3rlpy.metrics.evaluate_on_environment(env),
+            'environment': d3rlpy.metrics.evaluate_on_environment(env, n_trials=5),
             'value_scale': d3rlpy.metrics.average_value_estimation_scorer,
         },
         wandb_project=args.project,
