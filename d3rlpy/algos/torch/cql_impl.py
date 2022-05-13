@@ -28,6 +28,7 @@ class CQLImpl(SACImpl):
     _n_action_samples: int
     _soft_q_backup: bool
     _log_alpha: Optional[Parameter]
+    _alpha_optim: Optional[Optimizer]
     def __init__(
         self,
         observation_shape: Sequence[int],
@@ -92,8 +93,6 @@ class CQLImpl(SACImpl):
         # initialized in build
         self._log_alpha = None
         self._alpha_optim = None
-
-    _alpha_optim: Optional[Optimizer]
 
     def build(self) -> None:
         self._build_alpha()
