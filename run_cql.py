@@ -39,7 +39,9 @@ def main():
         n_action_samples=10,
         alpha_learning_rate=0.0,
         conservative_weight=conservative_weight,
-        use_gpu=args.gpu
+        alpha_threshold=-1.0,
+        use_gpu=args.gpu,
+        policy_eval_start=40000,
     )
 
     cql.fit(
