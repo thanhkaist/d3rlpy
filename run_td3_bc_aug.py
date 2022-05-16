@@ -1,6 +1,7 @@
 import argparse
 import d3rlpy
 from sklearn.model_selection import train_test_split
+from d3rlpy.argument_utility import check_scaler
 
 
 def main():
@@ -15,9 +16,11 @@ def main():
     parser.add_argument('--n_steps', type=int, default=500000)
     parser.add_argument('--n_eval_episodes', type=int, default=5)
 
-    SUPPORTED_TRANSFORMS = ['gaussian']
+    SUPPORTED_TRANSFORMS = ['gaussian', 'adversarial_training']
     parser.add_argument('--transform', type=str, default='gaussian', choices=SUPPORTED_TRANSFORMS)
     parser.add_argument('--epsilon', type=float, default=3e-4)
+    parser.add_argument('--num_steps', type=int, default=5)
+    parser.add_argument('--step_size', type=float, default=2.5e-5)
     parser.add_argument('--norm_min_max', action='store_true')
 
     args = parser.parse_args()
@@ -30,11 +33,20 @@ def main():
 
     _, test_episodes = train_test_split(dataset, test_size=0.2)
 
+    # TODO: Manually get scaler
+    transitions = []
+    for episode in dataset.episodes:
+        transitions += episode.transitions
+    scaler = check_scaler("standard")
+    scaler.fit(transitions)
+
     transform_params = dict(
         epsilon=args.epsilon,
+        num_steps=args.num_steps,
+        step_size=args.step_size,
         norm_min_max=args.norm_min_max
     )
-    td3 = d3rlpy.algos.TD3PlusBC(
+    td3 = d3rlpy.algos.TD3PlusBCAug(
         actor_learning_rate=3e-4,
         critic_learning_rate=3e-4,
         batch_size=256,
@@ -42,11 +54,12 @@ def main():
         target_smoothing_clip=0.5,
         alpha=2.5,
         update_actor_interval=2,
-        scaler="standard",
+        scaler=None,
         use_gpu=args.gpu,
         transform=args.transform,
         transform_params=transform_params,
-        env_name=args.dataset
+        env_name=args.dataset,
+        custom_scaler=scaler
     )
 
     td3.fit(

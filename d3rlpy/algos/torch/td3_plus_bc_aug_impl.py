@@ -69,6 +69,33 @@ def denormalize(x, min, max):
     x = x * (max - min) + min
     return x
 
+def generate_adv_example(x, _policy, _q_func, epsilon, num_steps, step_size, _obs_min, _obs_max):
+    adv_x = x.clone().detach()
+    # Starting at a uniformly random point
+    adv_x = adv_x + torch.zeros_like(x).uniform_(-epsilon, epsilon)
+    adv_x = clamp(adv_x, _obs_min, _obs_max)
+
+    with torch.no_grad():
+        # Using action from current learned policy as ground truth
+        action = _policy(x)
+        action = action.detach()
+
+    for _ in range(num_steps):
+        adv_x.requires_grad = True
+
+        outputs = _q_func(adv_x, action, "none")[0]
+
+        cost = -outputs.mean()
+
+        # Update adversarial images
+        grad = torch.autograd.grad(cost, adv_x, retain_graph=False, create_graph=False)[0]
+
+        adv_x = adv_x.detach() + step_size * grad.detach()
+        delta = torch.clamp(adv_x - x, min=-epsilon, max=epsilon)
+        adv_x = clamp(x + delta, _obs_min, _obs_max).detach()
+
+    return adv_x
+
 
 class TD3PlusBCAugImpl(TD3Impl):
 
@@ -98,6 +125,7 @@ class TD3PlusBCAugImpl(TD3Impl):
         transform: str = 'gaussian',
         transform_params: dict = None,
         env_name: str = '',
+        custom_scaler: Optional[Scaler] = None,
     ):
         super().__init__(
             observation_shape=observation_shape,
@@ -123,6 +151,7 @@ class TD3PlusBCAugImpl(TD3Impl):
 
         self._transform = transform
         self._transform_params = transform_params
+        self._custom_scaler = custom_scaler
 
         env_name_ = env_name.split('-')
         env_name = env_name_[0] + '-' + env_name_[-1]
@@ -179,8 +208,22 @@ class TD3PlusBCAugImpl(TD3Impl):
                 batch_aug._next_observations = clamp(batch_aug._next_observations,
                                                      self._obs_min, self._obs_max)
         elif self._transform in ['adversarial_training']:
-            # Using PGD with Linf-norm
-            pass
+            #### Using PGD with Linf-norm
+            epsilon = self._transform_params.get('epsilon', None)
+            num_steps = self._transform_params.get('num_steps', None)
+            step_size = self._transform_params.get('step_size', None)
+            assert epsilon is not None and num_steps is not None and step_size is not None, \
+                "Please provide the epsilon to perform {} transform.".format(self._transform)
+
+            adv_x = generate_adv_example(batch_aug._observations, self._policy, self._q_func,
+                                         epsilon, num_steps, step_size,
+                                         self._obs_min, self._obs_max)
+            batch_aug._observations = adv_x
+
+            adv_x = generate_adv_example(batch_aug._next_observations, self._policy, self._q_func,
+                                         epsilon, num_steps, step_size,
+                                         self._obs_min, self._obs_max)
+            batch_aug._next_observations = adv_x
         else:
             raise NotImplementedError
         return batch, batch_aug
@@ -194,6 +237,11 @@ class TD3PlusBCAugImpl(TD3Impl):
 
         ###### TODO: Augment state here
         batch, batch_aug = self.do_augmentation(batch)
+
+        batch._observations = self._custom_scaler.transform(batch._observations)
+        batch._next_observation = self._custom_scaler.transform(batch._next_observation)
+        batch_aug._observations = self._custom_scaler.transform(batch_aug._observations)
+        batch_aug._next_observation = self._custom_scaler.transform(batch_aug._next_observation)
         q_tpn = self.compute_target(batch)          # Compute target for clean data
         q_aug_tpn = self.compute_target(batch_aug)  # Compute target for augmented data
         q_tpn = (q_tpn + q_aug_tpn) / 2
