@@ -20,3 +20,9 @@ build
 dist
 /.idea/
 *.egg-info
+
+mount_dir.sh
+s123_d3rlpy_logs
+testers
+wandb
+scripts/
