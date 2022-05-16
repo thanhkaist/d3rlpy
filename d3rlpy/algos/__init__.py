@@ -20,6 +20,7 @@ from .td3 import TD3
 from .td3_plus_bc import TD3PlusBC
 from .td3_relational import TD3PlusRelation
 from .cql_aug import CQLAug, DiscreteCQLAug
+from .td3_plus_bc_aug import TD3PlusBCAug
 
 __all__ = [
     "AlgoBase",
@@ -47,6 +48,7 @@ __all__ = [
     "DiscreteSAC",
     "TD3",
     "TD3PlusBC",
+    "TD3PlusBCAug",
     "RandomPolicy",
     "DiscreteRandomPolicy",
     "get_algo",
@@ -82,6 +84,7 @@ CONTINUOUS_ALGORITHMS: Dict[str, Type[AlgoBase]] = {
     "sac": SAC,
     "td3": TD3,
     "td3_plus_bc": TD3PlusBC,
+    "td3_plus_bc_aug": TD3PlusBCAug,
     "random": RandomPolicy,
 }
 
