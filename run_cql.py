@@ -17,6 +17,7 @@ def main():
     parser.add_argument('--policy_lr', type=float, default=1e-4)
     parser.add_argument('--alpha_threshold', type=float, default=-1.0)
     parser.add_argument('--conservative_weight', type=float, default=5.0)
+    parser.add_argument('--n_eval_episodes', type=int, default=5)
     args = parser.parse_args()
 
     dataset, env = d3rlpy.datasets.get_dataset(args.dataset)
@@ -56,7 +57,7 @@ def main():
         save_interval=10,
         logdir=args.logdir,
         scorers={
-            'environment': d3rlpy.metrics.evaluate_on_environment(env, n_trials=5),
+            'environment': d3rlpy.metrics.evaluate_on_environment(env, n_trials=args.n_eval_episodes),
             'value_scale': d3rlpy.metrics.average_value_estimation_scorer,
         },
         wandb_project=args.project,

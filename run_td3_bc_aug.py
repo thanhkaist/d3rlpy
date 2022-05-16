@@ -13,6 +13,7 @@ def main():
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--logdir', type=str, default='d3rlpy_logs')
     parser.add_argument('--n_steps', type=int, default=500000)
+    parser.add_argument('--n_eval_episodes', type=int, default=5)
 
     SUPPORTED_TRANSFORMS = ['gaussian']
     parser.add_argument('--transform', type=str, default='gaussian', choices=SUPPORTED_TRANSFORMS)
@@ -56,7 +57,7 @@ def main():
         save_interval=10,
         logdir=args.logdir,
         scorers={
-            'environment': d3rlpy.metrics.evaluate_on_environment(env, n_trials=5),
+            'environment': d3rlpy.metrics.evaluate_on_environment(env, n_trials=args.n_eval_episodes),
             'value_scale': d3rlpy.metrics.average_value_estimation_scorer,
         },
         wandb_project=args.project,
