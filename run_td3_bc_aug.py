@@ -33,13 +33,6 @@ def main():
 
     _, test_episodes = train_test_split(dataset, test_size=0.2)
 
-    # TODO: Manually get scaler
-    transitions = []
-    for episode in dataset.episodes:
-        transitions += episode.transitions
-    scaler = check_scaler("standard")
-    scaler.fit(transitions)
-
     transform_params = dict(
         epsilon=args.epsilon,
         num_steps=args.num_steps,
@@ -54,12 +47,11 @@ def main():
         target_smoothing_clip=0.5,
         alpha=2.5,
         update_actor_interval=2,
-        scaler=None,
+        scaler="standard",
         use_gpu=args.gpu,
         transform=args.transform,
         transform_params=transform_params,
         env_name=args.dataset,
-        custom_scaler=scaler
     )
 
     td3.fit(

@@ -125,7 +125,6 @@ class TD3PlusBCAugImpl(TD3Impl):
         transform: str = 'gaussian',
         transform_params: dict = None,
         env_name: str = '',
-        custom_scaler: Optional[Scaler] = None,
     ):
         super().__init__(
             observation_shape=observation_shape,
@@ -151,7 +150,6 @@ class TD3PlusBCAugImpl(TD3Impl):
 
         self._transform = transform
         self._transform_params = transform_params
-        self._custom_scaler = custom_scaler
 
         env_name_ = env_name.split('-')
         env_name = env_name_[0] + '-' + env_name_[-1]
@@ -235,14 +233,16 @@ class TD3PlusBCAugImpl(TD3Impl):
 
         self._critic_optim.zero_grad()
 
+        batch._observations = self._scaler.reverse_transform(batch._observations)
+        batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
+
         ###### TODO: Augment state here
         batch, batch_aug = self.do_augmentation(batch)
 
-        # Manually do standardization
-        batch._observations = self._custom_scaler.transform(batch._observations)
-        batch._next_observations = self._custom_scaler.transform(batch._next_observations)
-        batch_aug._observations = self._custom_scaler.transform(batch_aug._observations)
-        batch_aug._next_observations = self._custom_scaler.transform(batch_aug._next_observations)
+        batch._observations = self._scaler.transform(batch._observations)
+        batch._next_observations = self._scaler.transform(batch._next_observations)
+        batch_aug._observations = self._scaler.transform(batch_aug._observations)
+        batch_aug._next_observations = self._scaler.transform(batch_aug._next_observations)
 
         q_tpn = self.compute_target(batch)          # Compute target for clean data
         q_aug_tpn = self.compute_target(batch_aug)  # Compute target for augmented data
@@ -253,27 +253,5 @@ class TD3PlusBCAugImpl(TD3Impl):
 
         loss.backward()
         self._critic_optim.step()
-
-        return loss.cpu().detach().numpy()
-
-    @train_api
-    @torch_api()
-    def update_actor(self, batch: TorchMiniBatch) -> np.ndarray:
-        assert self._q_func is not None
-        assert self._actor_optim is not None
-
-        # Manually do standardization
-        batch._observations = self._custom_scaler.transform(batch._observations)
-        batch._next_observations = self._custom_scaler.transform(batch._next_observations)
-
-        # Q function should be inference mode for stability
-        self._q_func.eval()
-
-        self._actor_optim.zero_grad()
-
-        loss = self.compute_actor_loss(batch)
-
-        loss.backward()
-        self._actor_optim.step()
 
         return loss.cpu().detach().numpy()

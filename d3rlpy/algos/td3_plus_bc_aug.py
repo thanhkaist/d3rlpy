@@ -124,7 +124,6 @@ class TD3PlusBCAug(AlgoBase):
         transform: str = 'gaussian',
         transform_params: dict = None,
         env_name: str = '',
-        custom_scaler: Optional[Scaler] = None,
         **kwargs: Any
     ):
         super().__init__(
@@ -155,7 +154,6 @@ class TD3PlusBCAug(AlgoBase):
         self._transform = transform
         self._transform_params = transform_params
         self._env_name = env_name
-        self._custom_scaler = custom_scaler
 
     def _create_impl(
         self, observation_shape: Sequence[int], action_size: int
@@ -183,7 +181,6 @@ class TD3PlusBCAug(AlgoBase):
             transform=self._transform,
             transform_params=self._transform_params,
             env_name=self._env_name,
-            custom_scaler=self._custom_scaler
         )
         self._impl.build()
 
