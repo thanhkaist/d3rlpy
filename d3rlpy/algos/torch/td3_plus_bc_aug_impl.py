@@ -239,9 +239,9 @@ class TD3PlusBCAugImpl(TD3Impl):
         batch, batch_aug = self.do_augmentation(batch)
 
         batch._observations = self._custom_scaler.transform(batch._observations)
-        batch._next_observation = self._custom_scaler.transform(batch._next_observation)
+        batch._next_observations = self._custom_scaler.transform(batch._next_observations)
         batch_aug._observations = self._custom_scaler.transform(batch_aug._observations)
-        batch_aug._next_observation = self._custom_scaler.transform(batch_aug._next_observation)
+        batch_aug._next_observations = self._custom_scaler.transform(batch_aug._next_observations)
         q_tpn = self.compute_target(batch)          # Compute target for clean data
         q_aug_tpn = self.compute_target(batch_aug)  # Compute target for augmented data
         q_tpn = (q_tpn + q_aug_tpn) / 2
