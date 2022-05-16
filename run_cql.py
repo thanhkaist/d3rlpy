@@ -13,6 +13,10 @@ def main():
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--logdir', type=str, default='d3rlpy_logs')
     parser.add_argument('--n_steps', type=int, default=1000000)
+
+    parser.add_argument('--policy_lr', type=float, default=1e-4)
+    parser.add_argument('--alpha_threshold', type=float, default=-1.0)
+    parser.add_argument('--conservative_weight', type=float, default=5.0)
     args = parser.parse_args()
 
     dataset, env = d3rlpy.datasets.get_dataset(args.dataset)
@@ -25,14 +29,14 @@ def main():
 
     encoder = d3rlpy.models.encoders.VectorEncoderFactory([256, 256, 256])
 
-    conservative_weight = 5.0
-    alpha_threshold = -1.0
+    conservative_weight = args.conservative_weight
+    alpha_threshold = args.alpha_threshold
     policy_eval_start = 40000
 
     cql = d3rlpy.algos.CQL(
-        actor_learning_rate=1e-4,
+        actor_learning_rate=args.policy_lr,
         critic_learning_rate=3e-4,
-        temp_learning_rate=1e-4,
+        temp_learning_rate=args.policy_lr,
         actor_encoder_factory=encoder,
         critic_encoder_factory=encoder,
         batch_size=256,

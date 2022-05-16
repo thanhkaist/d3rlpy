@@ -85,7 +85,6 @@ class CQLAugImpl(SACImpl):
     _soft_q_backup: bool
     _log_alpha: Optional[Parameter]
     _alpha_optim: Optional[Optimizer]
-
     def __init__(
         self,
         observation_shape: Sequence[int],
@@ -110,6 +109,7 @@ class CQLAugImpl(SACImpl):
         conservative_weight: float,
         n_action_samples: int,
         soft_q_backup: bool,
+        policy_eval_start: int,
         use_gpu: Optional[Device],
         scaler: Optional[Scaler],
         action_scaler: Optional[ActionScaler],
@@ -146,6 +146,8 @@ class CQLAugImpl(SACImpl):
         self._conservative_weight = conservative_weight
         self._n_action_samples = n_action_samples
         self._soft_q_backup = soft_q_backup
+        self._current_train_step = 0
+        self._policy_eval_start = policy_eval_start
 
         self._transform = transform
         self._transform_params = transform_params
@@ -179,8 +181,8 @@ class CQLAugImpl(SACImpl):
     ) -> torch.Tensor:
         ###### TODO: Augment state here
         assert batch_aug is not None
-        loss = super().compute_critic_loss(batch, q_tpn)        # Compute TD error for clean data
-        loss += super().compute_critic_loss(batch_aug, q_tpn)   # Compute TD error for augmented data
+        loss = 0.5 * super().compute_critic_loss(batch, q_tpn)        # Compute TD error for clean data
+        loss += 0.5 * super().compute_critic_loss(batch_aug, q_tpn)   # Compute TD error for augmented data
         conservative_loss = self._compute_conservative_loss(
             batch.observations, batch.actions, batch.next_observations
         )
@@ -210,6 +212,42 @@ class CQLAugImpl(SACImpl):
 
         return loss.cpu().detach().numpy(), cur_alpha
 
+    @train_api
+    @torch_api()
+    def update_actor(self, batch: TorchMiniBatch) -> np.ndarray:
+        assert self._q_func is not None
+        assert self._actor_optim is not None
+
+        # Q function should be inference mode for stability
+        self._q_func.eval()
+
+        self._actor_optim.zero_grad()
+
+        loss = self.compute_actor_loss(batch)
+
+        loss.backward()
+        self._actor_optim.step()
+
+        return loss.cpu().detach().numpy()
+
+    def compute_actor_loss(self, batch: TorchMiniBatch) -> torch.Tensor:
+        assert self._policy is not None
+        assert self._log_temp is not None
+        assert self._q_func is not None
+        action, log_prob = self._policy.sample_with_log_prob(batch.observations)
+        entropy = self._log_temp().exp() * log_prob
+
+        if self._current_train_step < self._policy_eval_start:
+            tanh_normal = self._policy.dist(batch.observations)
+            policy_log_prob = tanh_normal.log_prob(batch.actions)
+            actor_loss = (entropy - policy_log_prob).mean()
+        else:
+            q_t = self._q_func(batch.observations, action, "min")
+
+            actor_loss = (entropy - q_t).mean()
+
+        return actor_loss
+
     def _compute_policy_is_values(
         self, policy_obs: torch.Tensor, value_obs: torch.Tensor
     ) -> torch.Tensor:
@@ -238,7 +276,7 @@ class CQLAugImpl(SACImpl):
         log_probs = n_log_probs.view(1, -1, self._n_action_samples)
 
         # importance sampling
-        return policy_values - log_probs
+        return policy_values - log_probs.detach()
 
     def _compute_random_is_values(self, obs: torch.Tensor) -> torch.Tensor:
         assert self._q_func is not None
@@ -287,6 +325,9 @@ class CQLAugImpl(SACImpl):
         loss = logsumexp.mean(dim=0).mean() - data_values.mean(dim=0).mean()
         scaled_loss = self._conservative_weight * loss
 
+        if self._alpha_threshold < 0:
+            return scaled_loss
+
         # clip for stability
         clipped_alpha = self._log_alpha().exp().clamp(0, 1e6)[0][0]
 
@@ -305,7 +346,8 @@ class CQLAugImpl(SACImpl):
         assert self._policy
         assert self._targ_q_func
         with torch.no_grad():
-            action = self._policy.best_action(batch.next_observations)
+            # action = self._policy.best_action(batch.next_observations)
+            action, _ = self._policy.sample_with_log_prob(batch.next_observations)
             return self._targ_q_func.compute_target(
                 batch.next_observations,
                 action,
@@ -349,7 +391,7 @@ class CQLAugImpl(SACImpl):
                 noise = torch.randn_like(batch_aug.observations, dtype=batch_aug.observations.dtype,
                                          device=batch_aug.observations.device) * epsilon
                 batch_aug._next_observations += noise
-                batch_aug._next_observations = clamp(batch._next_observations,
+                batch_aug._next_observations = clamp(batch_aug._next_observations,
                                                      self._obs_min, self._obs_max)
         elif self._transform in ['adversarial_training']:
             # Using PGD with Linf-norm

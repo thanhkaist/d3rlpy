@@ -164,6 +164,7 @@ class CQLAug(AlgoBase):
         action_scaler: ActionScalerArg = None,
         reward_scaler: RewardScalerArg = None,
         impl: Optional[CQLAugImpl] = None,
+        policy_eval_start: int = 40000,
         transform: str = 'gaussian',
         transform_params: dict = None,
         env_name: str = '',
@@ -200,7 +201,7 @@ class CQLAug(AlgoBase):
         self._soft_q_backup = soft_q_backup
         self._use_gpu = check_use_gpu(use_gpu)
         self._impl = impl
-
+        self._policy_eval_start = policy_eval_start
         self._transform = transform
         self._transform_params = transform_params
         self._env_name = env_name
@@ -235,6 +236,7 @@ class CQLAug(AlgoBase):
             scaler=self._scaler,
             action_scaler=self._action_scaler,
             reward_scaler=self._reward_scaler,
+            policy_eval_start=self._policy_eval_start,
             transform=self._transform,
             transform_params=self._transform_params,
             env_name=self._env_name
@@ -243,6 +245,7 @@ class CQLAug(AlgoBase):
 
     def _update(self, batch: TransitionMiniBatch) -> Dict[str, float]:
         assert self._impl is not None, IMPL_NOT_INITIALIZED_ERROR
+        self._impl._current_train_step += 1
 
         metrics = {}
 
