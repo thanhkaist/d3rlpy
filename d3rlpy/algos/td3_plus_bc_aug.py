@@ -197,8 +197,6 @@ class TD3PlusBCAug(AlgoBase):
 
         # delayed policy update
         if self._grad_step % self._update_actor_interval == 0:
-            batch._observations = self._custom_scaler.transform(batch._observations)
-            batch._next_observations = self._custom_scaler.transform(batch._next_observations)
             actor_loss = self._impl.update_actor(batch)
             metrics.update({"actor_loss": actor_loss})
             self._impl.update_critic_target()
