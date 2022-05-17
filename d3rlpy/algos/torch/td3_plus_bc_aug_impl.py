@@ -69,7 +69,8 @@ def denormalize(x, min, max):
     x = x * (max - min) + min
     return x
 
-def generate_adv_example(x, _policy, _q_func, epsilon, num_steps, step_size, _obs_min, _obs_max):
+def generate_adv_example(x, _policy, _q_func, epsilon, num_steps, step_size, _obs_min, _obs_max,
+                         scaler=None):
     adv_x = x.clone().detach()
     # Starting at a uniformly random point
     adv_x = adv_x + torch.zeros_like(x).uniform_(-epsilon, epsilon)
@@ -81,8 +82,12 @@ def generate_adv_example(x, _policy, _q_func, epsilon, num_steps, step_size, _ob
         action = action.detach()
 
     for _ in range(num_steps):
+        adv_x_clone = adv_x.clone().detach()
         adv_x.requires_grad = True
 
+        if scaler is not None:
+            # TD3+BC will normalize data
+            adv_x = scaler.transform(adv_x)
         outputs = _q_func(adv_x, action, "none")[0]
 
         cost = -outputs.mean()
@@ -90,7 +95,7 @@ def generate_adv_example(x, _policy, _q_func, epsilon, num_steps, step_size, _ob
         # Update adversarial images
         grad = torch.autograd.grad(cost, adv_x, retain_graph=False, create_graph=False)[0]
 
-        adv_x = adv_x.detach() + step_size * grad.detach()
+        adv_x = adv_x_clone.detach() + step_size * grad.detach()
         delta = torch.clamp(adv_x - x, min=-epsilon, max=epsilon)
         adv_x = clamp(x + delta, _obs_min, _obs_max).detach()
 
@@ -215,12 +220,12 @@ class TD3PlusBCAugImpl(TD3Impl):
 
             adv_x = generate_adv_example(batch_aug._observations, self._policy, self._q_func,
                                          epsilon, num_steps, step_size,
-                                         self._obs_min, self._obs_max)
+                                         self._obs_min, self._obs_max, self._scaler)
             batch_aug._observations = adv_x
 
             adv_x = generate_adv_example(batch_aug._next_observations, self._policy, self._q_func,
                                          epsilon, num_steps, step_size,
-                                         self._obs_min, self._obs_max)
+                                         self._obs_min, self._obs_max, self._scaler)
             batch_aug._next_observations = adv_x
         else:
             raise NotImplementedError

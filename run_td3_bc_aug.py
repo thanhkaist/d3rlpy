@@ -64,6 +64,9 @@ def main():
         scorers={
             'environment': d3rlpy.metrics.evaluate_on_environment(env, n_trials=args.n_eval_episodes),
             'value_scale': d3rlpy.metrics.average_value_estimation_scorer,
+            'td_error': d3rlpy.metrics.td_error_scorer,
+            'value_estimation_std': d3rlpy.metrics.value_estimation_std_scorer,
+            'initial_state_value_estimation': d3rlpy.metrics.initial_state_value_estimation_scorer
         },
         wandb_project=args.project,
         use_wandb=args.wandb,
