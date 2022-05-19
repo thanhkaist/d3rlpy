@@ -4,6 +4,25 @@ from sklearn.model_selection import train_test_split
 from d3rlpy.argument_utility import check_scaler
 
 
+ENV_NAME_MAPPING = {
+    'walker2d-random-v0': 'w2d-r',
+    'walker2d-medium-v0': 'w2d-m',
+    'walker2d-medium-replay-v0': 'w2d-m-re',
+    'walker2d-medium-expert-v0': 'w2d-m-e',
+    'walker2d-expert-v0': 'w2d-e',
+    'hopper-random-v0': 'hop-r',
+    'hopper-medium-v0': 'hop-m',
+    'hopper-medium-replay-v0': 'hop-m-re',
+    'hopper-medium-expert-v0': 'hop-m-e',
+    'hopper-expert-v0': 'hop-e',
+    'halfcheetah-random-v0': 'che-r',
+    'halfcheetah-medium-v0': 'che-m',
+    'halfcheetah-medium-replay-v0': 'che-m-re',
+    'halfcheetah-medium-expert-v0': 'che-m-e',
+    'halfcheetah-expert-v0': 'che-e'
+}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default='hopper-medium-v0')
@@ -22,6 +41,10 @@ def main():
     parser.add_argument('--num_steps', type=int, default=5)
     parser.add_argument('--step_size', type=float, default=2.5e-5)
     parser.add_argument('--norm_min_max', action='store_true')
+    parser.add_argument('--adv_version', type=str, default='a1_d1')
+
+    parser.add_argument('--use_action_from_data', action='store_true')
+    parser.add_argument('--act_on_adv', action='store_true')
 
     args = parser.parse_args()
 
@@ -33,11 +56,28 @@ def main():
 
     _, test_episodes = train_test_split(dataset, test_size=0.2)
 
+    # Define version:
+    """
+    - a1_d1: (1) Generating adv example by using actor loss with constant action. (2) Robust training
+    similar to DrQ.
+    - a2_d1: (1) Generating adv example by using critic loss (Bellman error). (2) Robust training
+    similar to DrQ. (Cannot use)
+    - a1_d2: (1) Generating adv example by using actor loss with constant action. (2) Robust training
+    similar to DrQ, but the target is computed for clean data, not adversarial data.
+    - a2_d2: (1) Generating adv example by using critic loss (Bellman error). (2) Robust training
+    similar to DrQ, but the target is computed for clean data, not adversarial data.
+    - a3_d2: (1) Generating adv example (both state and action) by using actor loss with constant
+    action. (2) Robust training similar to DrQ, but the target is computed for clean data, not adversarial data.
+    -
+    """
     transform_params = dict(
         epsilon=args.epsilon,
         num_steps=args.num_steps,
         step_size=args.step_size,
-        norm_min_max=args.norm_min_max
+        norm_min_max=args.norm_min_max,
+        adv_version=args.adv_version,
+        use_action_from_data=args.use_action_from_data,
+        act_on_adv=args.act_on_adv
     )
     td3 = d3rlpy.algos.TD3PlusBCAug(
         actor_learning_rate=3e-4,
@@ -70,7 +110,7 @@ def main():
         },
         wandb_project=args.project,
         use_wandb=args.wandb,
-        experiment_name=f"TD3_BC_{args.dataset}_{args.exp}"
+        experiment_name=f"TD3_BC_{ENV_NAME_MAPPING[args.dataset]}_{args.exp}"
     )
 
 
