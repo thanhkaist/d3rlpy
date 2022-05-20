@@ -2,6 +2,7 @@ from typing import Any, Callable, Iterator, List, Optional, Tuple, Union, cast
 
 import gym
 import numpy as np
+import torch
 from typing_extensions import Protocol
 
 from ..dataset import Episode, TransitionMiniBatch
@@ -475,6 +476,110 @@ def evaluate_on_environment(
                         action = algo.predict([observation])[0]
 
                 observation, reward, done, _ = env.step(action)
+                episode_reward += reward
+
+                if is_image:
+                    stacked_observation.append(observation)
+
+                if render:
+                    env.render()
+
+                if done:
+                    break
+            episode_rewards.append(episode_reward)
+        if return_norm_score:
+            unorm_score = float(np.mean(episode_rewards))
+            return unorm_score, env.env.wrapped_env.get_normalized_score(unorm_score) * 100
+        else:
+            return float(np.mean(episode_rewards))
+
+    return scorer
+
+
+def evaluate_on_noise_environment(
+    env: gym.Env, n_trials: int = 10, epsilon: float = 0.0, render: bool = False,
+    noise_type: str = 'uniform', eps_noise: float = 1e-4
+):
+    """Returns scorer function of evaluation on environment.
+
+    This function returns scorer function, which is suitable to the standard
+    scikit-learn scorer function style.
+    The metrics of the scorer function is ideal metrics to evaluate the
+    resulted policies.
+
+    .. code-block:: python
+
+        import gym
+
+        from d3rlpy.algos import DQN
+        from d3rlpy.metrics.scorer import evaluate_on_environment
+
+
+        env = gym.make('CartPole-v0')
+
+        scorer = evaluate_on_environment(env)
+
+        cql = CQL()
+
+        mean_episode_return = scorer(cql)
+
+
+    Args:
+        env: gym-styled environment.
+        n_trials: the number of trials.
+        epsilon: noise factor for epsilon-greedy policy.
+        render: flag to render environment.
+
+    Returns:
+        scoerer function.
+
+
+    """
+    return_norm_score = True if env.env.spec.id in d4rl.infos.DATASET_URLS.keys() else False
+
+    # for image observation
+    observation_shape = env.observation_space.shape
+    is_image = len(observation_shape) == 3
+
+    def add_noise(o, noise_type, eps_noise):
+        if noise_type == 'gaussian':
+            o = o + np.random.randn(o.shape[0]) * eps_noise
+        elif noise_type == 'uniform':
+            o = o + np.random.uniform(-eps_noise, eps_noise, size=o.shape[0])
+        else:
+            raise NotImplementedError
+        return o
+
+    def scorer(algo: AlgoProtocol, *args: Any) -> float:
+        if is_image:
+            stacked_observation = StackedObservation(
+                observation_shape, algo.n_frames
+            )
+
+        episode_rewards = []
+        for _ in range(n_trials):
+            observation = env.reset()
+            import pdb; pdb.set_trace()
+            observation = add_noise(observation, noise_type, eps_noise)
+            episode_reward = 0.0
+
+            # frame stacking
+            if is_image:
+                stacked_observation.clear()
+                stacked_observation.append(observation)
+
+            while True:
+                # take action
+                if np.random.random() < epsilon:
+                    action = env.action_space.sample()
+                else:
+                    if is_image:
+                        action = algo.predict([stacked_observation.eval()])[0]
+                    else:
+                        action = algo.predict([observation])[0]
+
+                observation, reward, done, _ = env.step(action)
+                observation = add_noise(observation, noise_type, eps_noise)
                 episode_reward += reward
 
                 if is_image:

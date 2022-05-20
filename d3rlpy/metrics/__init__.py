@@ -12,6 +12,7 @@ from .scorer import (
     soft_opc_scorer,
     td_error_scorer,
     value_estimation_std_scorer,
+    evaluate_on_noise_environment
 )
 
 __all__ = [
@@ -27,4 +28,5 @@ __all__ = [
     "soft_opc_scorer",
     "td_error_scorer",
     "value_estimation_std_scorer",
+    "evaluate_on_noise_environment",
 ]
