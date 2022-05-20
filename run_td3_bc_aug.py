@@ -1,7 +1,6 @@
 import argparse
 import d3rlpy
 from sklearn.model_selection import train_test_split
-from d3rlpy.argument_utility import check_scaler
 
 
 ENV_NAME_MAPPING = {
@@ -34,6 +33,9 @@ def main():
     parser.add_argument('--logdir', type=str, default='d3rlpy_logs')
     parser.add_argument('--n_steps', type=int, default=500000)
     parser.add_argument('--n_eval_episodes', type=int, default=5)
+
+    parser.add_argument('--noise_test', type=str, default='uniform')
+    parser.add_argument('--noise_test_eps', type=float, default=1e-4)
 
     SUPPORTED_TRANSFORMS = ['gaussian', 'adversarial_training']
     parser.add_argument('--transform', type=str, default='gaussian', choices=SUPPORTED_TRANSFORMS)
@@ -103,6 +105,10 @@ def main():
         logdir=args.logdir,
         scorers={
             'environment': d3rlpy.metrics.evaluate_on_environment(env, n_trials=args.n_eval_episodes),
+            'noise_environment': d3rlpy.metrics.evaluate_on_noise_environment(env,
+                                                                              n_trials=args.n_eval_episodes,
+                                                                              noise_type=args.noise_test,
+                                                                              eps_noise=args.noise_test_eps),
             'value_scale': d3rlpy.metrics.average_value_estimation_scorer,
             'td_error': d3rlpy.metrics.td_error_scorer,
             'value_estimation_std': d3rlpy.metrics.value_estimation_std_scorer,

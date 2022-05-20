@@ -1,15 +1,16 @@
 # pylint: disable=too-many-ancestors
 
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Tuple
 
 import torch
+import numpy as np
 
 from ...gpu import Device
 from ...models.encoders import EncoderFactory
 from ...models.optimizers import OptimizerFactory
 from ...models.q_functions import QFunctionFactory
 from ...preprocessing import ActionScaler, RewardScaler, Scaler
-from ...torch_utility import TorchMiniBatch
+from ...torch_utility import TorchMiniBatch, torch_api, train_api
 from .td3_impl import TD3Impl
 
 
@@ -61,10 +62,86 @@ class TD3PlusBCImpl(TD3Impl):
         )
         self._alpha = alpha
 
-    def compute_actor_loss(self, batch: TorchMiniBatch) -> torch.Tensor:
+    def compute_actor_loss(self, batch: TorchMiniBatch) \
+        -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         assert self._policy is not None
         assert self._q_func is not None
         action = self._policy(batch.observations)
         q_t = self._q_func(batch.observations, action, "none")[0]
         lam = self._alpha / (q_t.abs().mean()).detach()
-        return lam * -q_t.mean() + ((batch.actions - action) ** 2).mean()
+        actor_loss = lam * -q_t.mean()
+        bc_loss = ((batch.actions - action) ** 2).mean()
+        total_loss = actor_loss + bc_loss
+        return total_loss, actor_loss, bc_loss
+
+    def compute_target(self, batch: TorchMiniBatch) -> torch.Tensor:
+        assert self._targ_policy is not None
+        assert self._targ_q_func is not None
+        with torch.no_grad():
+            action = self._targ_policy(batch.next_observations)
+            # smoothing target
+            noise = torch.randn(action.shape, device=batch.device)
+            scaled_noise = self._target_smoothing_sigma * noise
+            clipped_noise = scaled_noise.clamp(
+                -self._target_smoothing_clip, self._target_smoothing_clip
+            )
+            smoothed_action = action + clipped_noise
+            clipped_action = smoothed_action.clamp(-1.0, 1.0)
+            return self._targ_q_func.compute_target(
+                batch.next_observations,
+                clipped_action,
+                reduction="min",
+            )
+
+    def compute_critic_loss(
+        self, batch: TorchMiniBatch, q_tpn: torch.Tensor
+    ) -> torch.Tensor:
+        assert self._q_func is not None
+        return self._q_func.compute_error(
+            observations=batch.observations,
+            actions=batch.actions,
+            rewards=batch.rewards,
+            target=q_tpn,
+            terminals=batch.terminals,
+            gamma=self._gamma**batch.n_steps,
+        )
+
+    @train_api
+    @torch_api()
+    def update_critic(self, batch: TorchMiniBatch) \
+        -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        assert self._critic_optim is not None
+        with torch.no_grad():
+            q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
+            q1_pred = q_prediction[0].cpu().detach().numpy().mean()
+            q2_pred = q_prediction[1].cpu().detach().numpy().mean()
+
+        self._critic_optim.zero_grad()
+
+        q_tpn = self.compute_target(batch)
+
+        loss = self.compute_critic_loss(batch, q_tpn)
+
+        loss.backward()
+        self._critic_optim.step()
+
+        return loss.cpu().detach().numpy(), q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred
+
+    @train_api
+    @torch_api()
+    def update_actor(self, batch: TorchMiniBatch) \
+        -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        assert self._q_func is not None
+        assert self._actor_optim is not None
+
+        # Q function should be inference mode for stability
+        self._q_func.eval()
+
+        self._actor_optim.zero_grad()
+
+        loss, actor_loss, bc_loss = self.compute_actor_loss(batch)
+
+        loss.backward()
+        self._actor_optim.step()
+
+        return loss.cpu().detach().numpy(), actor_loss.cpu().detach().numpy(), bc_loss.cpu().detach().numpy()
