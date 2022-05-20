@@ -559,7 +559,6 @@ def evaluate_on_noise_environment(
         episode_rewards = []
         for _ in range(n_trials):
             observation = env.reset()
-            import pdb; pdb.set_trace()
             observation = add_noise(observation, noise_type, eps_noise)
             episode_reward = 0.0
 
