@@ -189,13 +189,22 @@ class TD3PlusBCAug(AlgoBase):
 
         metrics = {}
 
-        critic_loss = self._impl.update_critic(batch)
-        metrics.update({"critic_loss": critic_loss})
+        critic_loss, q_target, current_q1, current_q2 = self._impl.update_critic(batch)
+        metrics.update({
+            "critic_loss": critic_loss,
+            "q_target": q_target,
+            "q1_prediction": current_q1,
+            "q2_prediction": current_q2,
+        })
 
         # delayed policy update
         if self._grad_step % self._update_actor_interval == 0:
-            actor_loss = self._impl.update_actor(batch)
-            metrics.update({"actor_loss": actor_loss})
+            actor_loss, main_actor_loss, bc_loss = self._impl.update_actor(batch)
+            metrics.update({
+                "actor_loss": actor_loss,
+                "actor_loss_main": main_actor_loss,
+                "bc_loss": bc_loss
+            })
             self._impl.update_critic_target()
             self._impl.update_actor_target()
 
