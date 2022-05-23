@@ -12,7 +12,7 @@ from ...models.q_functions import QFunctionFactory
 from ...preprocessing import ActionScaler, RewardScaler, Scaler
 from ...torch_utility import TorchMiniBatch, torch_api, train_api
 from .td3_impl import TD3Impl
-
+from .td3_plus_bc_aug_impl import ENV_OBS_RANGE
 
 class TD3PlusBCImpl(TD3Impl):
 
@@ -39,6 +39,7 @@ class TD3PlusBCImpl(TD3Impl):
         scaler: Optional[Scaler],
         action_scaler: Optional[ActionScaler],
         reward_scaler: Optional[RewardScaler],
+        env_name: str = '',
     ):
         super().__init__(
             observation_shape=observation_shape,
@@ -61,6 +62,13 @@ class TD3PlusBCImpl(TD3Impl):
             reward_scaler=reward_scaler,
         )
         self._alpha = alpha
+
+        env_name_ = env_name.split('-')
+        env_name = env_name_[0] + '-' + env_name_[-1]
+        self._obs_max = torch.Tensor(ENV_OBS_RANGE[env_name]['max']).to(
+            'cuda:{}'.format(self._use_gpu.get_id()))
+        self._obs_min = torch.Tensor(ENV_OBS_RANGE[env_name]['min']).to(
+            'cuda:{}'.format(self._use_gpu.get_id()))
 
     def compute_actor_loss(self, batch: TorchMiniBatch) \
         -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

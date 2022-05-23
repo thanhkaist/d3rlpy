@@ -55,7 +55,8 @@ def main():
                                  alpha=2.5,
                                  update_actor_interval=2,
                                  scaler="standard",
-                                 use_gpu=args.gpu)
+                                 use_gpu=args.gpu,
+                                 env_name=args.dataset,)
 
     td3.fit(
         dataset.episodes,

@@ -120,6 +120,7 @@ class TD3PlusBC(AlgoBase):
         action_scaler: ActionScalerArg = None,
         reward_scaler: RewardScalerArg = None,
         impl: Optional[TD3PlusBCImpl] = None,
+        env_name: str = '',
         **kwargs: Any
     ):
         super().__init__(
@@ -147,6 +148,7 @@ class TD3PlusBC(AlgoBase):
         self._update_actor_interval = update_actor_interval
         self._use_gpu = check_use_gpu(use_gpu)
         self._impl = impl
+        self._env_name = env_name
 
     def _create_impl(
         self, observation_shape: Sequence[int], action_size: int
@@ -171,6 +173,7 @@ class TD3PlusBC(AlgoBase):
             scaler=self._scaler,
             action_scaler=self._action_scaler,
             reward_scaler=self._reward_scaler,
+            env_name=self._env_name,
         )
         self._impl.build()
 
