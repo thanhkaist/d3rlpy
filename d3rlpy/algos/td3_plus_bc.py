@@ -294,7 +294,7 @@ class TD3PlusBC(AlgoBase):
         n_episodes = 0
         for _ in tqdm(range(1, update_start_step + 1)):
             action = self.sample_action([observation])[0]
-            action = action + np.random.normal(0, max_action * expl_noise, size=action_dim)
+            action = action + np.random.normal(0, max_action * expl_noise, size=action_dim).astype(action.dtype)
 
             next_observation, reward, terminal, info = env.step(action)
             rollout_return += reward
