@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence, Callable
 
 from ..argument_utility import (
     ActionScalerArg,
@@ -19,6 +19,36 @@ from ..models.optimizers import AdamFactory, OptimizerFactory
 from ..models.q_functions import QFunctionFactory
 from .base import AlgoBase
 from .torch.td3_plus_bc_impl import TD3PlusBCImpl
+
+# Additional imports for custom online training
+import gym
+from tqdm import tqdm
+from ..base import LearnableBase
+from ..constants import (
+    CONTINUOUS_ACTION_SPACE_MISMATCH_ERROR,
+    DISCRETE_ACTION_SPACE_MISMATCH_ERROR,
+)
+from ..online.buffers import Buffer, ReplayBuffer
+from ..online.iterators import _setup_algo
+from ..torch_utility import TorchMiniBatch
+
+import torch
+from torch.utils.data._utils.collate import default_collate
+import numpy as np
+
+
+def _assert_action_space(algo: LearnableBase, env: gym.Env) -> None:
+    if isinstance(env.action_space, gym.spaces.Box):
+        assert (
+            algo.get_action_type() == ActionSpace.CONTINUOUS
+        ), CONTINUOUS_ACTION_SPACE_MISMATCH_ERROR
+    elif isinstance(env.action_space, gym.spaces.discrete.Discrete):
+        assert (
+            algo.get_action_type() == ActionSpace.DISCRETE
+        ), DISCRETE_ACTION_SPACE_MISMATCH_ERROR
+    else:
+        action_space = type(env.action_space)
+        raise ValueError(f"The action-space is not supported: {action_space}")
 
 
 class TD3PlusBC(AlgoBase):
@@ -205,3 +235,178 @@ class TD3PlusBC(AlgoBase):
 
     def get_action_type(self) -> ActionSpace:
         return ActionSpace.CONTINUOUS
+
+
+    def fit_sarsa(
+        self,
+        env: gym.Env,
+        buffer: Optional[Buffer] = None,
+        n_steps: int = 30000,
+        update_start_step: int = 100000,
+        timelimit_aware: bool = True,
+        batch_size: int = 256,
+        log_interval: int = 2000
+    ) -> None:
+        """Start training loop of online deep reinforcement learning.
+
+        Args:
+            env: gym-like environment.
+            buffer : replay buffer.
+            explorer: action explorer.
+            n_steps: the number of total steps to train.
+            n_steps_per_epoch: the number of steps per epoch.
+            update_interval: the number of steps per update.
+            update_start_step: the steps before starting updates.
+            random_steps: the steps for the initial random explortion.
+            eval_env: gym-like environment. If None, evaluation is skipped.
+            eval_epsilon: :math:`\\epsilon`-greedy factor during evaluation.
+            save_metrics: flag to record metrics. If False, the log
+                directory is not created and the model parameters are not saved.
+            save_interval: the number of epochs before saving models.
+            experiment_name: experiment name for logging. If not passed,
+                the directory name will be ``{class name}_online_{timestamp}``.
+            with_timestamp: flag to add timestamp string to the last of
+                directory name.
+            logdir: root directory name to save logs.
+            verbose: flag to show logged information on stdout.
+            show_progress: flag to show progress bar for iterations.
+
+        """
+
+        if buffer is None:
+            buffer = BufferSarsaWrapper(update_start_step, env=env)
+
+        # check action-space
+        _assert_action_space(self, env)
+
+        _setup_algo(self, env)
+
+        observation_shape = env.observation_space.shape
+        assert len(observation_shape) == 1, "Do not support image env."
+
+        # Collecting data using learned policy
+        observation = env.reset()
+        rollout_return = 0.0
+        for total_step in tqdm(range(1, update_start_step + 1)):
+            # TODO: need to add noise
+            action = self.sample_action([observation])[0]
+
+            next_observation, reward, terminal, info = env.step(action)
+            rollout_return += reward
+
+            # special case for TimeLimit wrapper
+            if timelimit_aware and "TimeLimit.truncated" in info:
+                clip_episode = True
+                terminal = False
+            else:
+                clip_episode = terminal
+
+            # store observation
+            buffer.append(
+                observation=observation,
+                action=action,
+                reward=reward,
+                terminal=terminal,
+                clip_episode=clip_episode,
+            )
+
+            if clip_episode:
+                if total_step % log_interval:
+                    print("[INFO] Return: ", rollout_return)
+                observation = env.reset()
+                rollout_return = 0.0
+            else:
+                observation = next_observation
+
+        # Start training loop
+        for total_step in tqdm(range(1, n_steps + 1), desc="SARSA training"):
+            batch, next_action = buffer.sample(
+                batch_size=batch_size,
+                n_frames=1,
+                n_steps=1,
+                gamma=self.gamma,
+            )
+
+            batch = TorchMiniBatch(
+                batch,
+                self._impl.device,
+                scaler=self.scaler,
+            )
+
+            next_action = default_collate(next_action)
+            next_action = next_action.to(self._impl.device)
+
+            # For debug
+            with torch.no_grad():
+                q_prediction = self._impl._q_func(batch.observations, batch.actions, reduction="none")
+                q1_pred = q_prediction[0].cpu().detach().numpy().mean()
+                q2_pred = q_prediction[1].cpu().detach().numpy().mean()
+
+            """
+            training Q-value as SARSA style
+            """
+            self._impl._critic_optim.zero_grad()
+
+            with torch.no_grad():
+                # Still use double-q style from TD3 for compute Q target but without
+                # smoothing target action
+                q_tpn = self._impl._targ_q_func.compute_target(
+                    batch.next_observations,
+                    next_action,
+                    reduction="min"
+                )
+
+            loss = self._impl._q_func.compute_error(
+                observations=batch.observations,
+                actions=batch.actions,
+                rewards=batch.rewards,
+                target=q_tpn,
+                terminals=batch.terminals,
+                gamma=self._gamma ** batch.n_steps,
+            )
+
+            loss.backward()
+            self._impl._critic_optim.step()
+
+            if total_step % self._update_actor_interval == 0:
+                self._impl.update_critic_target()
+
+            if total_step % 1000 == 0:
+                print("Iter: %d, q1_pred=%.2f, q2_pred=%.2f" % (total_step, q1_pred, q2_pred))
+
+
+class BufferSarsaWrapper(ReplayBuffer):
+
+    def __init__(
+        self,
+        maxlen: int,
+        env: Optional[gym.Env] = None,
+    ):
+        super().__init__(maxlen, env)
+
+
+    def sample(
+        self, batch_size: int,
+        n_frames: int = 1,
+        n_steps: int = 1,
+        gamma: float = 0.99,
+    ):
+        indices = np.random.choice(len(self._transitions), batch_size)
+        transitions = []
+        next_action = []
+
+        for index in indices:
+            # Avoid last sample in buffer to take 'next_action'
+            if index == len(self._transitions) - 1:
+                index = len(self._transitions) - 2
+
+            transitions.append(self._transitions[index])
+
+            if self._transitions[index].terminal != 1.0:
+                next_action.append(self._transitions[index + 1].action)
+            else:
+                # This is arbitrary, since it will be ignored latter when computing target
+                next_action.append(self._transitions[index].action)
+
+        batch = TransitionMiniBatch(transitions, n_frames, n_steps, gamma)
+        return batch, next_action
