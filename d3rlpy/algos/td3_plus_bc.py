@@ -245,7 +245,8 @@ class TD3PlusBC(AlgoBase):
         update_start_step: int = 100000,
         timelimit_aware: bool = True,
         batch_size: int = 256,
-        log_interval: int = 2000
+        log_interval: int = 2000,
+        expl_noise: float = 0.1,
     ) -> None:
         """Start training loop of online deep reinforcement learning.
 
@@ -284,12 +285,16 @@ class TD3PlusBC(AlgoBase):
         observation_shape = env.observation_space.shape
         assert len(observation_shape) == 1, "Do not support image env."
 
+        max_action = float(env.action_space.high[0])
+        action_dim = env.action_space.shape[0]
+
         # Collecting data using learned policy
         observation = env.reset()
         rollout_return = 0.0
-        for total_step in tqdm(range(1, update_start_step + 1)):
-            # TODO: need to add noise
+        n_episodes = 0
+        for _ in tqdm(range(1, update_start_step + 1)):
             action = self.sample_action([observation])[0]
+            action = action + np.random.normal(0, max_action * expl_noise, size=action_dim)
 
             next_observation, reward, terminal, info = env.step(action)
             rollout_return += reward
@@ -311,7 +316,8 @@ class TD3PlusBC(AlgoBase):
             )
 
             if clip_episode:
-                if total_step % log_interval:
+                n_episodes += 1
+                if n_episodes % 5 == 0:
                     print("[INFO] Return: ", rollout_return)
                 observation = env.reset()
                 rollout_return = 0.0
@@ -371,7 +377,7 @@ class TD3PlusBC(AlgoBase):
             if total_step % self._update_actor_interval == 0:
                 self._impl.update_critic_target()
 
-            if total_step % 1000 == 0:
+            if total_step % log_interval == 0:
                 print("Iter: %d, q1_pred=%.2f, q2_pred=%.2f" % (total_step, q1_pred, q2_pred))
 
 
