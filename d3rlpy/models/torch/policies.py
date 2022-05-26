@@ -10,6 +10,10 @@ from torch.distributions import Categorical
 from .distributions import GaussianDistribution, SquashedGaussianDistribution
 from .encoders import Encoder, EncoderWithAction
 
+# Library for computing output bound of network
+from auto_LiRPA import BoundedModule, BoundedTensor
+from auto_LiRPA.perturbations import PerturbationLpNorm
+import numpy as np
 
 def squash_action(
     dist: torch.distributions.Distribution, raw_action: torch.Tensor
@@ -77,6 +81,42 @@ class DeterministicPolicy(Policy):
 
     def best_action(self, x: torch.Tensor) -> torch.Tensor:
         return self.forward(x)
+
+
+class WrapperBoundDeterministicPolicy(nn.Module):
+    def __init__(self, policy, observation_shape, device, use_full_backward=False):
+        super().__init__()
+        self.use_full_backward = use_full_backward
+        self.policy = BoundedModule(
+            model=policy,
+            global_input=(torch.empty(size=(1, observation_shape)), ),
+            device=device
+        )
+
+    def forward(self, x):
+        return self.policy(x, method_opt="forward")
+
+    def best_action(self, x):
+        return self.forward(x)
+
+    # Obtain element-wise lower and upper bounds for actor network through convex relaxations.
+    def compute_bound(self, x_lb, x_ub, beta=0, eps=None, norm=np.inf, x=None):
+        perturb = PerturbationLpNorm(norm=norm, eps=eps, x_L=x_lb, x_U=x_ub)
+        x = BoundedTensor(x, perturb)
+
+        if self.use_full_backward:
+            a_lb_bw, a_ub_bw = self.policy.compute_bounds(x=(x,), IBP=False, method="backward")
+            a_lb, a_ub = a_lb_bw, a_ub_bw
+        else:
+            a_lb_ibp, a_ub_ibp = self.policy.compute_bounds(x=(x,), IBP=True, method=None)
+            if beta > 1e-10:
+                a_lb_bw, a_ub_bw = self.policy.compute_bounds(IBP=False, method="backward")
+                a_lb = a_lb_bw * beta + a_lb_ibp * (1.0 - beta)
+                a_ub = a_ub_bw * beta + a_ub_ibp * (1.0 - beta)
+            else:
+                a_lb, a_ub = a_lb_ibp, a_ub_ibp
+
+        return a_lb, a_ub
 
 
 class DeterministicResidualPolicy(Policy):

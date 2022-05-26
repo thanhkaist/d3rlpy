@@ -5,6 +5,14 @@ from torch import nn
 
 from .base import ContinuousQFunction, DiscreteQFunction
 
+import torch.nn.functional as F
+import numpy as np
+from .utility import compute_reduce
+
+# Library for computing output bound of network
+from auto_LiRPA.bound_ops import BoundParams
+from auto_LiRPA import BoundedModule, BoundedTensor
+from auto_LiRPA.perturbations import PerturbationLpNorm
 
 def _reduce_ensemble(
     y: torch.Tensor, reduction: str = "min", dim: int = 0, lam: float = 0.75
@@ -182,3 +190,138 @@ class EnsembleContinuousQFunction(EnsembleQFunction):
         lam: float = 0.75,
     ) -> torch.Tensor:
         return self._compute_target(x, action, reduction, lam)
+
+
+class WrapperBoundEnsembleContinuousQFunction(nn.Module):
+    _action_size: int
+    _q_funcs: nn.ModuleList
+
+    def __init__(self, q_func, observation_shape, action_shape, device, use_full_backward=False):
+        super().__init__()
+        self.use_full_backward = use_full_backward
+
+        self.unwrapped_q = q_func   # This is original unwrapped object
+        self._action_size = q_func.q_funcs[0].action_size
+
+        for i in range(len(q_func.q_funcs)):
+            self.unwrapped_q._q_funcs[i] = BoundedModule(
+                model=q_func.q_funcs[i],
+                global_input=(torch.empty(size=(1, observation_shape)), torch.empty(size=(1, action_shape))),
+                device=device
+            )
+
+    def reset_weight(self):
+        def weight_reset(m):
+            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+                m.reset_parameters()
+            if isinstance(m, BoundParams):
+                params = m.forward_value
+                if params.ndim == 2:
+                    torch.nn.init.kaiming_uniform_(params, a=np.sqrt(5))
+                else:
+                    torch.nn.init.normal_(params)
+
+        self.unwrapped_q.apply(weight_reset)
+
+    def forward(
+        self, x: torch.Tensor, action: torch.Tensor, reduction: str = "mean"
+    ) -> torch.Tensor:
+        values = []
+        for q_func in self.unwrapped_q._q_funcs:
+            q = q_func(x, action, method_opt="forward")
+            values.append(q.view(1, x.shape[0], 1))
+        return _reduce_ensemble(torch.cat(values, dim=0), reduction)
+
+    def __call__(
+        self, x: torch.Tensor, action: torch.Tensor, reduction: str = "mean"
+    ) -> torch.Tensor:
+        return cast(torch.Tensor, super().__call__(x, action, reduction))
+
+    def compute_target(
+        self,
+        x: torch.Tensor,
+        action: torch.Tensor,
+        reduction: str = "min",
+        lam: float = 0.75,
+    ) -> torch.Tensor:
+        # Define compute target again
+
+        return self._compute_target(x, action, reduction, lam)
+
+    def _compute_target(
+        self,
+        x: torch.Tensor,
+        action: Optional[torch.Tensor] = None,
+        reduction: str = "min",
+        lam: float = 0.75,
+    ) -> torch.Tensor:
+        values_list: List[torch.Tensor] = []
+        for q_func in self.unwrapped_q._q_funcs:
+            target = self.compute_target_for_single_q(q_func, x, action)
+            values_list.append(target.reshape(1, x.shape[0], -1))
+
+        values = torch.cat(values_list, dim=0)
+
+        if action is None:
+            # mean Q function
+            if values.shape[2] == self._action_size:
+                return _reduce_ensemble(values, reduction)
+            # distributional Q function
+            n_q_funcs = values.shape[0]
+            values = values.view(n_q_funcs, x.shape[0], self._action_size, -1)
+            return _reduce_quantile_ensemble(values, reduction)
+
+        if values.shape[2] == 1:
+            return _reduce_ensemble(values, reduction, lam=lam)
+
+        return _reduce_quantile_ensemble(values, reduction, lam=lam)
+
+    def compute_error(
+        self,
+        observations: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        target: torch.Tensor,
+        terminals: torch.Tensor,
+        gamma: float = 0.99,
+    ) -> torch.Tensor:
+        assert target.ndim == 2
+
+        td_sum = torch.tensor(
+            0.0, dtype=torch.float32, device=observations.device
+        )
+        for q_func in self.unwrapped_q._q_funcs:
+            loss = self.compute_error_for_single_q(
+                q_func,
+                observations=observations,
+                actions=actions,
+                rewards=rewards,
+                target=target,
+                terminals=terminals,
+                gamma=gamma,
+                reduction="none",
+            )
+            td_sum += loss.mean()
+        return td_sum
+
+    def compute_target_for_single_q(self, q, x: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
+        return q(x, action, method_opt="forward")
+
+    def compute_error_for_single_q(
+        self, q,
+        observations: torch.Tensor,
+        actions: torch.Tensor,
+        rewards: torch.Tensor,
+        target: torch.Tensor,
+        terminals: torch.Tensor,
+        gamma: float = 0.99,
+        reduction: str = "mean",
+    ):
+        value = q(observations, actions, method_opt="forward")
+        y = rewards + gamma * target * (1 - terminals)
+        loss = F.mse_loss(value, y, reduction="none")
+        return compute_reduce(loss, reduction)
+
+    @property
+    def q_funcs(self) -> nn.ModuleList:
+        return self.unwrapped_q._q_funcs
