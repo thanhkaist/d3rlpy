@@ -4,8 +4,8 @@ from sklearn.model_selection import train_test_split
 
 import torch
 import torch.nn.functional as F
-from torch import multiprocessing
-import multiprocessing as mp
+from torch import multiprocessing as mp
+
 import numpy as np
 
 import gym
@@ -14,7 +14,8 @@ import time
 import copy
 import os
 
-from auto_LiRPA.bound_ops import BoundParams
+from d3rlpy.models.torch.policies import WrapperBoundDeterministicPolicy
+from d3rlpy.models.torch.q_functions.ensemble_q_function import WrapperBoundEnsembleContinuousQFunction
 
 
 parser = argparse.ArgumentParser()
@@ -122,14 +123,14 @@ def eval_env_under_attack(args_):
     state_min, state_max = algo._impl._obs_min.cpu().numpy(), algo._impl._obs_max.cpu().numpy()
 
     def attack(state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None):
-        if type == 'random':
+        if type in ['random']:
             perturb_state = standardization(state, algo.scaler._mean, algo.scaler._std)
             noise = np.random.uniform(-attack_epsilon, attack_epsilon, size=state.shape[0])
             perturb_state = perturb_state + noise
             perturb_state = reverse_standardization(perturb_state, algo.scaler._mean, algo.scaler._std)
             perturb_state = np.clip(perturb_state, state_min, state_max)
 
-        elif type == 'critic':
+        elif type in ['critic']:
             ori_state_tensor = tensor(state, algo._impl.device)         # original, unnormalized
             adv_x = ori_state_tensor.clone().detach()
 
@@ -163,7 +164,7 @@ def eval_env_under_attack(args_):
 
             perturb_state = algo.scaler.reverse_transform(adv_x).cpu().numpy()
 
-        elif type == 'action':
+        elif type in ['action']:
             ori_state_tensor = tensor(state, algo._impl.device)         # original, unnormalized
             ori_state_tensor = algo.scaler.transform(ori_state_tensor)  # normalized
 
@@ -252,34 +253,57 @@ def eval_multiprocess_wrapper(algo, func, env_list, args):
     return unorm_score
 
 
-def train_sarsa(algo, env, buffer=None, n_sarsa_steps=30000, n_warmups=100000):
-    import torch.nn as nn
+def make_bound_for_network(algo):
+    # For convex relaxation: This is tested for TD3, not guarantee to work with other algorithms
+    algo._impl._q_func = WrapperBoundEnsembleContinuousQFunction(
+        q_func=algo._impl._q_func,
+        observation_shape=algo.observation_shape[0],
+        action_shape=algo.action_size,
+        device=algo._impl.device
+    )
+    algo._impl._targ_q_func = WrapperBoundEnsembleContinuousQFunction(
+        q_func=algo._impl._targ_q_func,
+        observation_shape=algo.observation_shape[0],
+        action_shape=algo.action_size,
+        device=algo._impl.device
+    )
+
+    algo._impl._policy = WrapperBoundDeterministicPolicy(
+        policy=algo._impl._policy,
+        observation_shape=algo.observation_shape[0],
+        device=algo._impl.device
+    )
+    algo._impl._targ_policy = WrapperBoundDeterministicPolicy(
+        policy=algo._impl._targ_policy,
+        observation_shape=algo.observation_shape[0],
+        device=algo._impl.device
+    )
+
+    return algo
+
+
+def train_sarsa(algo, env, buffer=None, n_sarsa_steps=1000, n_warmups=1000):
 
     logdir_sarsa = os.path.join(args.ckpt[:args.ckpt.rfind('/')], 'sarsa_model')
     model_path = os.path.join(logdir_sarsa, 'sarsa_ntrains{}_warmup{}.pt'.format(n_sarsa_steps, n_warmups))
 
-    def weight_reset(m):
-        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-            m.reset_parameters()
-        if isinstance(m, BoundParams):
-            params = m.forward_value
-            if params.ndim == 2:
-                torch.nn.init.kaiming_uniform_(params, a=np.sqrt(5))
-            else:
-                torch.nn.init.normal_(params)
+
+    algo = make_bound_for_network(algo)
 
     # We need to re-initialize the critic, not using the old one (following SA-DDPG)
-    algo._impl._q_func.apply(weight_reset)
-    algo._impl._targ_q_func.apply(weight_reset)
+    algo._impl._q_func.reset_weight()
+    algo._impl._targ_q_func.reset_weight()
 
-    # if not os.path.exists(logdir_sarsa):
-    #     os.mkdir(logdir_sarsa)
-    # if os.path.exists(model_path):
-    #     algo.load_model(model_path)
-    # else:
+    if not os.path.exists(logdir_sarsa):
+        os.mkdir(logdir_sarsa)
+    if os.path.exists(model_path):
+        print('Found pretrained SARSA: ', model_path)
+        algo.load_model(model_path)
+    else:
+        print('Not found pretrained SARSA: ', model_path)
+        algo.fit_sarsa(env, buffer, n_sarsa_steps, n_warmups)
+        algo.save_model(model_path)
 
-    algo.fit_sarsa(env, buffer, n_sarsa_steps, n_warmups)
-    algo.save_model(model_path)
     return algo
 
 
@@ -307,7 +331,6 @@ def main(args):
     if args.attack_type.startswith('sarsa'):
         td3 = train_sarsa(td3, env)
 
-    exit()
 
     if not args.mp:
         print('[INFO] Normally evaluating...')
@@ -324,7 +347,7 @@ def main(args):
         env_list = []
         env_list.append(env)
         for i in range(args.n_processes - 1):
-            _env = env = gym.make(args.dataset)
+            _env = gym.make(args.dataset)
             _env.seed(args.seed)
             env_list.append(_env)
         if not args.disable_clean:
@@ -346,7 +369,6 @@ def main(args):
 
 if __name__ == '__main__':
     if args.mp:
-        multiprocessing.set_start_method("spawn")
-
+        mp.set_start_method("spawn")
     main(args)
 
