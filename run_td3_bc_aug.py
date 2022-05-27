@@ -37,8 +37,8 @@ def main():
     parser.add_argument('--noise_test', type=str, default='uniform')
     parser.add_argument('--noise_test_eps', type=float, default=1e-4)
 
-    SUPPORTED_TRANSFORMS = ['gaussian', 'adversarial_training']
-    parser.add_argument('--transform', type=str, default='gaussian', choices=SUPPORTED_TRANSFORMS)
+    SUPPORTED_TRANSFORMS = ['random', 'adversarial_training']
+    parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
 
     parser.add_argument('--attack_type', type=str, default='critic_normal')
     parser.add_argument('--robust_type', type=str, default='actor_mad')
@@ -111,15 +111,28 @@ def main():
         logdir=args.logdir,
         scorers={
             'environment': d3rlpy.metrics.evaluate_on_environment(env, n_trials=args.n_eval_episodes),
-            'noise_environment': d3rlpy.metrics.evaluate_on_noise_environment(env,
-                                                                              n_trials=args.n_eval_episodes,
-                                                                              noise_type=args.noise_test,
-                                                                              eps_noise=args.noise_test_eps),
+            'noise_environment': d3rlpy.metrics.evaluate_on_environment_with_attack(
+                env,
+                n_trials=args.n_eval_episodes,
+                attack_type="random",
+                attack_epsilon=args.epsilon,
+                attack_iteration=args.num_steps,
+                attack_stepsize=args.epsilon / args.num_steps
+            ),
+            'critic_attack': d3rlpy.metrics.evaluate_on_environment_with_attack(
+                env,
+                n_trials=args.n_eval_episodes,
+                attack_type="critic_normal",
+                attack_epsilon=args.epsilon,
+                attack_iteration=args.num_steps,
+                attack_stepsize=args.epsilon / args.num_steps
+            ),
             'value_scale': d3rlpy.metrics.average_value_estimation_scorer,
             'td_error': d3rlpy.metrics.td_error_scorer,
             'value_estimation_std': d3rlpy.metrics.value_estimation_std_scorer,
             'initial_state_value_estimation': d3rlpy.metrics.initial_state_value_estimation_scorer
         },
+        eval_interval=10,
         wandb_project=args.project,
         use_wandb=args.wandb,
         experiment_name=f"TD3_BC_{ENV_NAME_MAPPING[args.dataset]}_{args.exp}"

@@ -10,6 +10,8 @@ from ..preprocessing.reward_scalers import RewardScaler
 from ..preprocessing.stack import StackedObservation
 
 import d4rl
+from ..adversarial_training.attackers import critic_normal_attack, actor_mad_attack, random_attack
+from..adversarial_training.utility import tensor
 
 WINDOW_SIZE = 1024
 
@@ -496,9 +498,10 @@ def evaluate_on_environment(
     return scorer
 
 
-def evaluate_on_noise_environment(
+def evaluate_on_environment_with_attack(
     env: gym.Env, n_trials: int = 10, epsilon: float = 0.0, render: bool = False,
-    noise_type: str = 'uniform', eps_noise: float = 1e-4
+    attack_type: str = 'random',
+    attack_epsilon: float = 1e-4, attack_iteration: int = 5, attack_stepsize: float = 2e-5
 ):
     """Returns scorer function of evaluation on environment.
 
@@ -541,14 +544,39 @@ def evaluate_on_noise_environment(
     observation_shape = env.observation_space.shape
     is_image = len(observation_shape) == 3
 
-    def add_noise(o, noise_type, eps_noise):
-        if noise_type == 'gaussian':
-            o = o + np.random.randn(o.shape[0]) * eps_noise
-        elif noise_type == 'uniform':
-            o = o + np.random.uniform(-eps_noise, eps_noise, size=o.shape[0])
+    def attack(algo, state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None):
+        if type in ['random']:
+            ori_state_tensor = tensor(state, algo._impl.device)
+            perturb_state = random_attack(
+                ori_state_tensor, attack_epsilon,
+                algo._impl._obs_min, algo._impl._obs_max,
+                algo.scaler
+            )
+            perturb_state = perturb_state.cpu().numpy()
+
+        elif type in ['critic_normal']:
+            ori_state_tensor = tensor(state, algo._impl.device)         # original, unnormalized
+            perturb_state = critic_normal_attack(
+                ori_state_tensor, algo._impl._policy, algo._impl._q_func,
+                attack_epsilon, attack_iteration, attack_stepsize,
+                algo._impl._obs_min, algo._impl._obs_max,
+                algo.scaler
+            )
+            perturb_state = perturb_state.cpu().numpy()
+
+        elif type in ['actor_mad']:
+            ori_state_tensor = tensor(state, algo._impl.device)         # original, unnormalized
+            perturb_state = actor_mad_attack(
+                ori_state_tensor, algo._impl._policy, algo._impl._q_func,
+                attack_epsilon, attack_iteration, attack_stepsize,
+                algo._impl._obs_min, algo._impl._obs_max,
+                algo.scaler
+            )
+            perturb_state = perturb_state.cpu().numpy()
+
         else:
             raise NotImplementedError
-        return o
+        return perturb_state
 
     def scorer(algo: AlgoProtocol, *args: Any) -> float:
         if is_image:
@@ -559,7 +587,8 @@ def evaluate_on_noise_environment(
         episode_rewards = []
         for _ in range(n_trials):
             observation = env.reset()
-            observation = add_noise(observation, noise_type, eps_noise)
+            observation = attack(algo, observation, attack_type,
+                                 attack_epsilon, attack_iteration, attack_stepsize)
             episode_reward = 0.0
 
             # frame stacking
@@ -578,7 +607,8 @@ def evaluate_on_noise_environment(
                         action = algo.predict([observation])[0]
 
                 observation, reward, done, _ = env.step(action)
-                observation = add_noise(observation, noise_type, eps_noise)
+                observation = attack(algo, observation, attack_type,
+                                     attack_epsilon, attack_iteration, attack_stepsize)
                 episode_reward += reward
 
                 if is_image:
