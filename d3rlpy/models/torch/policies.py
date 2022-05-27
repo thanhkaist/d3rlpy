@@ -99,8 +99,11 @@ class WrapperBoundDeterministicPolicy(nn.Module):
     def best_action(self, x):
         return self.forward(x)
 
+    def load_state_dict(self, state_dict, strict=False):
+        self.policy.load_state_dict(state_dict, strict)
+
     # Obtain element-wise lower and upper bounds for actor network through convex relaxations.
-    def compute_bound(self, x_lb, x_ub, beta=0, eps=None, norm=np.inf, x=None):
+    def compute_bound(self, x_lb, x_ub, x=None, beta=0, eps=None, norm=np.inf):
         perturb = PerturbationLpNorm(norm=norm, eps=eps, x_L=x_lb, x_U=x_ub)
         x = BoundedTensor(x, perturb)
 

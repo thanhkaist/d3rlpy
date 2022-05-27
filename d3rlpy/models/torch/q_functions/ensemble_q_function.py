@@ -237,24 +237,14 @@ class WrapperBoundEnsembleContinuousQFunction(nn.Module):
     ) -> torch.Tensor:
         return cast(torch.Tensor, super().__call__(x, action, reduction))
 
-    def compute_target(
-        self,
-        x: torch.Tensor,
-        action: torch.Tensor,
-        reduction: str = "min",
-        lam: float = 0.75,
-    ) -> torch.Tensor:
+    def compute_target(self, x: torch.Tensor, action: torch.Tensor,
+                       reduction: str = "min", lam: float = 0.75, ) -> torch.Tensor:
         # Define compute target again
 
         return self._compute_target(x, action, reduction, lam)
 
-    def _compute_target(
-        self,
-        x: torch.Tensor,
-        action: Optional[torch.Tensor] = None,
-        reduction: str = "min",
-        lam: float = 0.75,
-    ) -> torch.Tensor:
+    def _compute_target(self, x: torch.Tensor, action: Optional[torch.Tensor] = None,
+        reduction: str = "min", lam: float = 0.75,) -> torch.Tensor:
         values_list: List[torch.Tensor] = []
         for q_func in self.unwrapped_q._q_funcs:
             target = self.compute_target_for_single_q(q_func, x, action)
@@ -276,14 +266,8 @@ class WrapperBoundEnsembleContinuousQFunction(nn.Module):
 
         return _reduce_quantile_ensemble(values, reduction, lam=lam)
 
-    def compute_error(
-        self,
-        observations: torch.Tensor,
-        actions: torch.Tensor,
-        rewards: torch.Tensor,
-        target: torch.Tensor,
-        terminals: torch.Tensor,
-        gamma: float = 0.99,
+    def compute_error(self, observations: torch.Tensor, actions: torch.Tensor,
+        rewards: torch.Tensor, target: torch.Tensor, terminals: torch.Tensor, gamma: float = 0.99,
     ) -> torch.Tensor:
         assert target.ndim == 2
 
@@ -307,16 +291,11 @@ class WrapperBoundEnsembleContinuousQFunction(nn.Module):
     def compute_target_for_single_q(self, q, x: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
         return q(x, action, method_opt="forward")
 
-    def compute_error_for_single_q(
-        self, q,
-        observations: torch.Tensor,
-        actions: torch.Tensor,
-        rewards: torch.Tensor,
-        target: torch.Tensor,
-        terminals: torch.Tensor,
-        gamma: float = 0.99,
-        reduction: str = "mean",
-    ):
+    def compute_error_for_single_q(self, q, observations: torch.Tensor, actions: torch.Tensor,
+                                   rewards: torch.Tensor, target: torch.Tensor,
+                                   terminals: torch.Tensor, gamma: float = 0.99,
+                                   reduction: str = "mean", ):
+
         value = q(observations, actions, method_opt="forward")
         y = rewards + gamma * target * (1 - terminals)
         loss = F.mse_loss(value, y, reduction="none")
@@ -325,3 +304,58 @@ class WrapperBoundEnsembleContinuousQFunction(nn.Module):
     @property
     def q_funcs(self) -> nn.ModuleList:
         return self.unwrapped_q._q_funcs
+
+    def load_state_dict(self, state_dict, strict=False):
+        self.unwrapped_q.load_state_dict(state_dict, strict)
+
+    # Obtain element-wise lower and upper bounds for actor network through convex relaxations.
+    def compute_bound(self, x_lb, x_ub, a_lb, a_ub, x=None, a=None, beta=0, eps=None, norm=np.inf,
+                      q_idx=None):
+
+        values_lb, values_ub = [], []
+        x_perturb = PerturbationLpNorm(norm=norm, eps=eps, x_L=x_lb, x_U=x_ub)
+        x = BoundedTensor(x, x_perturb)
+        a_perturb = PerturbationLpNorm(norm=norm, eps=eps, x_L=a_lb, x_U=a_ub)
+        a = BoundedTensor(a, a_perturb)
+
+        if q_idx is None:
+            # Return upper bound & lower bound for both q functions
+            for q_func in self.unwrapped_q._q_funcs:
+                if self.use_full_backward:
+                    q_lb_bw, q_ub_bw = q_func.compute_bounds(x=(x, a), IBP=False, method="backward")
+                    q_lb, q_ub = q_lb_bw, q_ub_bw
+
+                else:
+                    q_lb_ibp, q_ub_ibp = q_func.compute_bounds(x=(x, a), IBP=True, method=None)
+                    if beta > 1e-10:
+                        q_lb_bw, q_ub_bw = q_func.compute_bounds(IBP=False, method="backward")
+                        q_lb = q_lb_bw * beta + q_lb_ibp * (1.0 - beta)
+                        q_ub = q_ub_bw * beta + q_ub_ibp * (1.0 - beta)
+                    else:
+                        q_lb, q_ub = q_lb_ibp, q_ub_ibp
+
+                values_lb.append(q_lb)
+                values_ub.append(q_ub)
+
+        else:
+            assert q_idx in [0, 1], "Index of Q function used among two Q(s), applied to TD3"
+            if self.use_full_backward:
+                q_lb_bw, q_ub_bw = self.unwrapped_q._q_funcs[q_idx].compute_bounds(
+                    x=(x, a), IBP=False, method="backward")
+                q_lb, q_ub = q_lb_bw, q_ub_bw
+
+            else:
+                q_lb_ibp, q_ub_ibp = self.unwrapped_q._q_funcs[q_idx].compute_bounds(
+                    x=(x, a), IBP=True, method=None)
+                if beta > 1e-10:
+                    q_lb_bw, q_ub_bw = self.unwrapped_q._q_funcs[q_idx].compute_bounds(
+                        IBP=False, method="backward")
+                    q_lb = q_lb_bw * beta + q_lb_ibp * (1.0 - beta)
+                    q_ub = q_ub_bw * beta + q_ub_ibp * (1.0 - beta)
+                else:
+                    q_lb, q_ub = q_lb_ibp, q_ub_ibp
+
+            values_lb.append(q_lb)
+            values_ub.append(q_ub)
+
+        return values_lb, values_ub
