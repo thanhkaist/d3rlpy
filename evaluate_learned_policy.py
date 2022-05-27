@@ -16,6 +16,8 @@ import os
 
 from d3rlpy.models.torch.policies import WrapperBoundDeterministicPolicy
 from d3rlpy.models.torch.q_functions.ensemble_q_function import WrapperBoundEnsembleContinuousQFunction
+from d3rlpy.adversarial_training.attackers import critic_normal_attack, actor_mad_attack, random_attack
+from d3rlpy.adversarial_training.utility import tensor
 
 
 parser = argparse.ArgumentParser()
@@ -43,35 +45,6 @@ parser.add_argument('--mp', action='store_true')
 parser.add_argument('--n_processes', type=int, default=5)
 
 args = parser.parse_args()
-
-"""
-##### Utility
-"""
-def standardization(x, mean, std, eps=1e-3):
-    return (x - mean) / (std + eps)
-
-def reverse_standardization(x, mean, std, eps=1e-3):
-    return ((std + eps) * x) + mean
-
-def tensor(x, device='cpu'):
-    if isinstance(x, torch.Tensor):
-        return x
-    x = np.asarray(x, dtype=np.float)
-    x = torch.tensor(x, device=device, dtype=torch.float32)
-    return x
-
-
-def clamp(x, vec_min, vec_max):
-    if isinstance(vec_min, list):
-        vec_min = torch.Tensor(vec_min).to(x.device)
-    if isinstance(vec_max, list):
-        vec_max = torch.Tensor(vec_max).to(x.device)
-
-    assert isinstance(vec_min, torch.Tensor) and isinstance(vec_max, torch.Tensor)
-    x = torch.max(x, vec_min)
-    x = torch.min(x, vec_max)
-    return x
-
 
 
 """
@@ -124,79 +97,33 @@ def eval_env_under_attack(args_):
 
     def attack(state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None):
         if type in ['random']:
-            perturb_state = standardization(state, algo.scaler._mean, algo.scaler._std)
-            noise = np.random.uniform(-attack_epsilon, attack_epsilon, size=state.shape[0])
-            perturb_state = perturb_state + noise
-            perturb_state = reverse_standardization(perturb_state, algo.scaler._mean, algo.scaler._std)
-            perturb_state = np.clip(perturb_state, state_min, state_max)
+            ori_state_tensor = tensor(state, algo._impl.device)
+            perturb_state = random_attack(
+                ori_state_tensor, attack_epsilon,
+                algo._impl._obs_min, algo._impl._obs_max,
+                algo.scaler
+            )
+            perturb_state = perturb_state.cpu().numpy()
 
-        elif type in ['critic']:
+        elif type in ['critic_normal']:
             ori_state_tensor = tensor(state, algo._impl.device)         # original, unnormalized
-            adv_x = ori_state_tensor.clone().detach()
+            perturb_state = critic_normal_attack(
+                ori_state_tensor, algo._impl._policy, algo._impl._q_func,
+                attack_epsilon, attack_iteration, attack_stepsize,
+                algo._impl._obs_min, algo._impl._obs_max,
+                algo.scaler
+            )
+            perturb_state = perturb_state.cpu().numpy()
 
-            adv_x = algo.scaler.transform(adv_x)                        # normalized
-            noise = torch.zeros_like(adv_x).uniform_(-attack_epsilon, attack_epsilon)
-            adv_x = adv_x + noise                                       # already normalized
-
-            ori_state_tensor = algo.scaler.transform(ori_state_tensor)  # normalize original state
-            for _ in range(attack_iteration):
-                adv_x_clone = adv_x.clone().detach()    # normalized
-                adv_x.requires_grad = True
-
-                # adv_x = algo.scaler.transform(adv_x)
-                action = algo._impl._policy(adv_x)
-                qval = algo._impl._q_func(ori_state_tensor, action, "none")[0]
-
-                cost = -qval.mean()
-
-                grad = torch.autograd.grad(cost, adv_x, retain_graph=False, create_graph=False)[0]
-
-                # adv_x = adv_x_clone + attack_stepsize * torch.sign(grad)  # Not good enough
-                adv_x = adv_x_clone + attack_stepsize * grad
-
-                delta = torch.clamp(adv_x - adv_x_clone, min=-attack_epsilon, max=attack_epsilon)
-                adv_x = adv_x_clone + delta     # This is adversarial example
-
-                # This clamp is performed in ORIGINAL scale
-                adv_x = algo.scaler.reverse_transform(adv_x)
-                adv_x = clamp(adv_x, algo._impl._obs_min, algo._impl._obs_max)
-                adv_x = algo.scaler.transform(adv_x)
-
-            perturb_state = algo.scaler.reverse_transform(adv_x).cpu().numpy()
-
-        elif type in ['action']:
+        elif type in ['actor_mad']:
             ori_state_tensor = tensor(state, algo._impl.device)         # original, unnormalized
-            ori_state_tensor = algo.scaler.transform(ori_state_tensor)  # normalized
-
-            with torch.no_grad():
-                gt_action = algo._impl._policy(ori_state_tensor).clone().detach()  # ground truth
-
-            adv_x = ori_state_tensor.clone().detach()                   # already normalized
-
-            noise = torch.zeros_like(adv_x).uniform_(-attack_epsilon, attack_epsilon)
-            adv_x = adv_x + noise
-
-            for _ in range(attack_iteration):
-                adv_x_clone = adv_x.clone().detach()    # normalized
-                adv_x.requires_grad = True
-
-                adv_a = algo._impl._policy(adv_x)
-
-                cost = F.mse_loss(adv_a, gt_action)
-
-                grad = torch.autograd.grad(cost, adv_x, retain_graph=False, create_graph=False)[0]
-
-                adv_x = adv_x_clone + attack_stepsize * grad
-
-                delta = torch.clamp(adv_x - adv_x_clone, min=-attack_epsilon, max=attack_epsilon)
-                adv_x = adv_x_clone + delta     # This is adversarial example
-
-                # This clamp is performed in ORIGINAL scale
-                adv_x = algo.scaler.reverse_transform(adv_x)
-                adv_x = clamp(adv_x, algo._impl._obs_min, algo._impl._obs_max)
-                adv_x = algo.scaler.transform(adv_x)
-
-            perturb_state = algo.scaler.reverse_transform(adv_x).cpu().numpy()
+            perturb_state = actor_mad_attack(
+                ori_state_tensor, algo._impl._policy, algo._impl._q_func,
+                attack_epsilon, attack_iteration, attack_stepsize,
+                algo._impl._obs_min, algo._impl._obs_max,
+                algo.scaler
+            )
+            perturb_state = perturb_state.cpu().numpy()
 
         else:
             raise NotImplementedError
