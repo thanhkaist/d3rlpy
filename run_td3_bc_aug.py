@@ -102,6 +102,31 @@ def main():
         env_name=args.dataset,
     )
 
+    # TODO: Note that, every environment-based test must include 'environment' in its key
+    scorer_funcs = {
+        'environment': d3rlpy.metrics.evaluate_on_environment(env, n_trials=args.n_eval_episodes),
+        'noise_environment': d3rlpy.metrics.evaluate_on_environment_with_attack(
+            env,
+            n_trials=args.n_eval_episodes,
+            attack_type="random",
+            attack_epsilon=args.epsilon,
+            attack_iteration=args.num_steps,
+            attack_stepsize=args.epsilon / args.num_steps
+        ),
+        'critic_normal_environment': d3rlpy.metrics.evaluate_on_environment_with_attack(
+            env,
+            n_trials=args.n_eval_episodes,
+            attack_type="critic_normal",
+            attack_epsilon=args.epsilon,
+            attack_iteration=args.num_steps,
+            attack_stepsize=args.epsilon / args.num_steps
+        ),
+        'value_scale': d3rlpy.metrics.average_value_estimation_scorer,
+        'td_error': d3rlpy.metrics.td_error_scorer,
+        'value_estimation_std': d3rlpy.metrics.value_estimation_std_scorer,
+        'initial_state_value_estimation': d3rlpy.metrics.initial_state_value_estimation_scorer
+    }
+
     td3.fit(
         dataset.episodes,
         eval_episodes=test_episodes,
@@ -109,30 +134,8 @@ def main():
         n_steps_per_epoch=1000,
         save_interval=10,
         logdir=args.logdir,
-        scorers={
-            'environment': d3rlpy.metrics.evaluate_on_environment(env, n_trials=args.n_eval_episodes),
-            'noise_environment': d3rlpy.metrics.evaluate_on_environment_with_attack(
-                env,
-                n_trials=args.n_eval_episodes,
-                attack_type="random",
-                attack_epsilon=args.epsilon,
-                attack_iteration=args.num_steps,
-                attack_stepsize=args.epsilon / args.num_steps
-            ),
-            'critic_attack': d3rlpy.metrics.evaluate_on_environment_with_attack(
-                env,
-                n_trials=args.n_eval_episodes,
-                attack_type="critic_normal",
-                attack_epsilon=args.epsilon,
-                attack_iteration=args.num_steps,
-                attack_stepsize=args.epsilon / args.num_steps
-            ),
-            'value_scale': d3rlpy.metrics.average_value_estimation_scorer,
-            'td_error': d3rlpy.metrics.td_error_scorer,
-            'value_estimation_std': d3rlpy.metrics.value_estimation_std_scorer,
-            'initial_state_value_estimation': d3rlpy.metrics.initial_state_value_estimation_scorer
-        },
-        eval_interval=10,
+        scorers=scorer_funcs,
+        eval_interval=1,
         wandb_project=args.project,
         use_wandb=args.wandb,
         experiment_name=f"TD3_BC_{ENV_NAME_MAPPING[args.dataset]}_{args.exp}"
