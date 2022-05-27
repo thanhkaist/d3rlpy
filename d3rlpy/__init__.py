@@ -16,6 +16,7 @@ from . import (
     ope,
     preprocessing,
     wrappers,
+    adversarial_training,
 )
 from ._version import __version__
 
