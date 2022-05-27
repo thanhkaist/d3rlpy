@@ -17,7 +17,7 @@ from ...adversarial_training import (
     clamp,
     ENV_OBS_RANGE,
 )
-from ...adversarial_training.attackers import critic_normal_attack, actor_mad_attack
+from ...adversarial_training.attackers import critic_normal_attack, actor_mad_attack, random_attack
 
 
 class TD3PlusBCAugImpl(TD3Impl):
@@ -246,22 +246,20 @@ class TD3PlusBCAugImpl(TD3Impl):
 
         batch_aug = copy.deepcopy(batch)
         # Transforming the copied batch
-        if self._transform in ['uniform']:
+        if self._transform in ['random']:
             assert self._transform_params is not None, "Cannot find params for random transform."
             epsilon = self._transform_params.get('epsilon', None)
             assert epsilon is not None, "Please provide the epsilon for random transform."
 
-            batch_aug._observations = self.scaler.transform(batch_aug._observations)
-            noise = torch.zeros_like(batch_aug._observations).uniform_(-epsilon, epsilon)
-            batch_aug._observations = batch_aug._observations + noise
-            batch_aug._observations = self.scaler.reverse_transform(batch_aug._observations)
-            batch_aug._observations = clamp(batch_aug._observations, self._obs_min, self._obs_max)
+            adv_x = random_attack(batch_aug._observations, epsilon,
+                                  self._obs_min, self._obs_max,
+                                  self.scaler)
+            batch_aug._observations = adv_x
 
-            batch_aug._next_observations = self.scaler.transform(batch_aug._next_observations)
-            noise = torch.zeros_like(batch_aug._next_observations).uniform_(-epsilon, epsilon)
-            batch_aug._next_observations = batch_aug._next_observations + noise
-            batch_aug._next_observations = self.scaler.reverse_transform(batch_aug._next_observations)
-            batch_aug._next_observations = clamp(batch_aug._next_observations, self._obs_min, self._obs_max)
+            adv_x = random_attack(batch_aug._next_observations, epsilon,
+                                  self._obs_min, self._obs_max,
+                                  self.scaler)
+            batch_aug._next_observations = adv_x
 
         elif self._transform in ['adversarial_training']:
             #### Using PGD with Linf-norm
