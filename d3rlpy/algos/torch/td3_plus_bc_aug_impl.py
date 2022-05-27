@@ -1,6 +1,6 @@
 # pylint: disable=too-many-ancestors
 
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Tuple
 import copy
 
 import torch
@@ -13,93 +13,11 @@ from ...models.q_functions import QFunctionFactory
 from ...preprocessing import ActionScaler, RewardScaler, Scaler
 from ...torch_utility import TorchMiniBatch, torch_api, train_api
 from .td3_impl import TD3Impl
-
-
-ENV_OBS_RANGE = {
-    'walker2d-v0': dict(
-        max=[1.8164345026016235, 0.999911367893219, 0.5447346568107605, 0.7205190062522888,
-             1.5128496885299683, 0.49508699774742126, 0.6822911500930786, 1.4933640956878662,
-             9.373093605041504, 5.691765308380127, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0],
-        min=[0.800006091594696, -0.9999997019767761, -3.006617546081543, -2.9548180103302,
-             -1.72023344039917, -2.9515464305877686, -3.0064914226531982, -1.7654582262039185,
-             -6.7458906173706055, -8.700752258300781, -10.0, -10.0, -10.0, -10.0, -10.0, -10.0,
-             -10.0]
-    ),
-    'hopper-v0': dict(
-        max=[1.7113906145095825, 0.1999576985836029, 0.046206455677747726, 0.10726844519376755,
-             0.9587112665176392, 5.919354438781738, 3.04956316947937, 6.732881546020508,
-             7.7671966552734375, 10.0, 10.0],
-        min=[0.7000009417533875, -0.1999843567609787, -1.540910243988037, -1.1928397417068481,
-             -0.9543644189834595, -1.6949318647384644, -5.237359523773193, -6.2852582931518555,
-             -10.0, -10.0, -10.0]
-    ),
-    'halfcheetah-v0': dict(
-        max=[1.600443959236145,22.812137603759766, 1.151809811592102, 0.949776291847229,
-             0.9498141407966614, 0.8997246026992798, 1.1168793439865112, 0.7931482791900635,
-             16.50477409362793, 5.933143138885498, 13.600515365600586, 27.84033203125,
-             30.474760055541992, 30.78533935546875, 30.62249755859375, 37.273799896240234,
-             31.570491790771484],
-        min=[-0.6028550267219543, -3.561767339706421, -0.7100794315338135, -1.0610754489898682,
-             -0.6364201903343201, -1.2164583206176758, -1.2236766815185547, -0.7376371026039124,
-             -3.824833869934082, -5.614060878753662, -12.930273056030273, -29.38336944580078,
-             -31.534399032592773, -27.823902130126953, -32.996246337890625, -30.887380599975586,
-             -30.41145896911621]
-    ),
-}
-
-
-def clamp(x, vec_min, vec_max):
-    if isinstance(vec_min, list):
-        vec_min = torch.Tensor(vec_min).to(x.device)
-    if isinstance(vec_max, list):
-        vec_max = torch.Tensor(vec_max).to(x.device)
-
-    assert isinstance(vec_min, torch.Tensor) and isinstance(vec_max, torch.Tensor)
-    x = torch.max(x, vec_min)
-    x = torch.min(x, vec_max)
-    return x
-
-
-def normalize(x, min, max):
-    x = (x - min)/(max - min)
-    return x
-
-
-def denormalize(x, min, max):
-    x = x * (max - min) + min
-    return x
-
-def generate_adv_example(x, _policy, _q_func, epsilon, num_steps, step_size, _obs_min, _obs_max,
-                         scaler=None):
-    adv_x = x.clone().detach()
-    # Starting at a uniformly random point
-    adv_x = adv_x + torch.zeros_like(x).uniform_(-epsilon, epsilon)
-    adv_x = clamp(adv_x, _obs_min, _obs_max)
-
-    with torch.no_grad():
-        # Using action from current learned policy as ground truth
-        action = _policy(x)
-        action = action.detach()
-
-    for _ in range(num_steps):
-        adv_x_clone = adv_x.clone().detach()
-        adv_x.requires_grad = True
-
-        if scaler is not None:
-            # TD3+BC will normalize data
-            adv_x = scaler.transform(adv_x)
-        outputs = _q_func(adv_x, action, "none")[0]
-
-        cost = -outputs.mean()
-
-        # Update adversarial images
-        grad = torch.autograd.grad(cost, adv_x, retain_graph=False, create_graph=False)[0]
-
-        adv_x = adv_x_clone.detach() + step_size * grad.detach()
-        delta = torch.clamp(adv_x - x, min=-epsilon, max=epsilon)
-        adv_x = clamp(x + delta, _obs_min, _obs_max).detach()
-
-    return adv_x
+from ...adversarial_training import (
+    clamp,
+    ENV_OBS_RANGE,
+)
+from ...adversarial_training.attackers import critic_normal_attack, actor_mad_attack
 
 
 class TD3PlusBCAugImpl(TD3Impl):
@@ -163,100 +81,230 @@ class TD3PlusBCAugImpl(TD3Impl):
         self._obs_min = torch.Tensor(ENV_OBS_RANGE[env_name]['min']).to(
             'cuda:{}'.format(self._use_gpu.get_id()))
 
-    def compute_actor_loss(self, batch: TorchMiniBatch) -> torch.Tensor:
+    def compute_actor_loss(self, batch: TorchMiniBatch) \
+        -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         assert self._policy is not None
         assert self._q_func is not None
         action = self._policy(batch.observations)
         q_t = self._q_func(batch.observations, action, "none")[0]
         lam = self._alpha / (q_t.abs().mean()).detach()
-        return lam * -q_t.mean() + ((batch.actions - action) ** 2).mean()
+        actor_loss = lam * -q_t.mean()
+        bc_loss = ((batch.actions - action) ** 2).mean()
+        total_loss = actor_loss + bc_loss
+        return total_loss, actor_loss, bc_loss
+
+    def compute_target(self, batch: TorchMiniBatch) -> torch.Tensor:
+        assert self._targ_policy is not None
+        assert self._targ_q_func is not None
+        with torch.no_grad():
+            action = self._targ_policy(batch.next_observations)
+            # smoothing target
+            noise = torch.randn(action.shape, device=batch.device)
+            scaled_noise = self._target_smoothing_sigma * noise
+            clipped_noise = scaled_noise.clamp(
+                -self._target_smoothing_clip, self._target_smoothing_clip
+            )
+            smoothed_action = action + clipped_noise
+            clipped_action = smoothed_action.clamp(-1.0, 1.0)
+            return self._targ_q_func.compute_target(
+                batch.next_observations,
+                clipped_action,
+                reduction="min",
+            )
+
+    def compute_critic_loss(
+        self, batch: TorchMiniBatch, q_tpn: torch.Tensor
+    ) -> torch.Tensor:
+        assert self._q_func is not None
+        return self._q_func.compute_error(
+            observations=batch.observations,
+            actions=batch.actions,
+            rewards=batch.rewards,
+            target=q_tpn,
+            terminals=batch.terminals,
+            gamma=self._gamma**batch.n_steps,
+        )
+
+    @train_api
+    @torch_api()
+    def update_critic(self, batch: TorchMiniBatch) \
+        -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        assert self._critic_optim is not None
+        robust_type = self._transform_params.get('robust_type', None)
+
+        if robust_type in ['critic_reg']:
+            batch._observations = self._scaler.reverse_transform(batch._observations)
+            batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
+
+            batch, batch_aug = self.do_augmentation(batch)
+
+            with torch.no_grad():
+                q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
+                q1_pred = q_prediction[0].cpu().detach()
+                q2_pred = q_prediction[1].cpu().detach()
+
+                q_prediction_adv = self._q_func(batch_aug.observations, batch_aug.actions, reduction="none")
+                q1_pred_adv_diff = (q_prediction_adv[0].cpu().detach() - q1_pred).numpy().mean()
+                q2_pred_adv_diff = (q_prediction_adv[1].cpu().detach() - q2_pred).numpy().mean()
+                q1_pred = q1_pred.numpy().mean()
+                q2_pred = q2_pred.numpy().mean()
+
+            batch._observations = self._scaler.transform(batch._observations)
+            batch._next_observations = self._scaler.transform(batch._next_observations)
+            batch_aug._observations = self._scaler.transform(batch_aug._observations)
+            batch_aug._next_observations = self._scaler.transform(batch_aug._next_observations)
+
+            self._critic_optim.zero_grad()
+
+            q_tpn = self.compute_target(batch)          # Compute target for clean data
+            q_aug_tpn = self.compute_target(batch_aug)  # Compute target for augmented data
+            q_tpn = (q_tpn + q_aug_tpn) / 2
+
+            loss = (self.compute_critic_loss(batch, q_tpn) +
+                    self.compute_critic_loss(batch_aug, q_tpn)) / 2
+
+            loss.backward()
+            self._critic_optim.step()
+        else:
+            q1_pred_adv_diff, q2_pred_adv_diff = 0.0, 0.0
+            with torch.no_grad():
+                q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
+                q1_pred = q_prediction[0].cpu().detach().numpy().mean()
+                q2_pred = q_prediction[1].cpu().detach().numpy().mean()
+
+            self._critic_optim.zero_grad()
+
+            q_tpn = self.compute_target(batch)
+
+            loss = self.compute_critic_loss(batch, q_tpn)
+
+            loss.backward()
+            self._critic_optim.step()
+
+        return loss.cpu().detach().numpy(), q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred, \
+               q1_pred_adv_diff, q2_pred_adv_diff
+
+    @train_api
+    @torch_api()
+    def update_actor(self, batch: TorchMiniBatch) \
+        -> Tuple[np.ndarray, Tuple]:
+        assert self._q_func is not None
+        assert self._actor_optim is not None
+        robust_type = self._transform_params.get('robust_type', None)
+
+        if robust_type in ['actor_mad']:
+            actor_reg_coef = self._transform_params.get('actor_reg_coef', 0)
+
+            batch._observations = self._scaler.reverse_transform(batch._observations)
+            batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
+
+            batch, batch_aug = self.do_augmentation(batch)
+
+            batch._observations = self._scaler.transform(batch._observations)
+            batch._next_observations = self._scaler.transform(batch._next_observations)
+            batch_aug._observations = self._scaler.transform(batch_aug._observations)
+            batch_aug._next_observations = self._scaler.transform(batch_aug._next_observations)
+
+            # Q function should be inference mode for stability
+            self._q_func.eval()
+
+            self._actor_optim.zero_grad()
+
+            loss, actor_loss, bc_loss = self.compute_actor_loss(batch)
+
+            if actor_reg_coef > 0:
+                action_reg_loss =  ((self._policy(batch_aug.observations) - batch.actions) ** 2).mean()
+                loss += action_reg_loss * action_reg_loss
+            else:
+                action_reg_loss = 0
+
+            loss.backward()
+            self._actor_optim.step()
+
+            action_reg_loss = action_reg_loss.item() if action_reg_loss > 0 else 0
+            extra_logs = (actor_loss.cpu().detach().numpy(), bc_loss.cpu().detach().numpy(),
+                          action_reg_loss)
+
+        else:
+
+            # Q function should be inference mode for stability
+            self._q_func.eval()
+
+            self._actor_optim.zero_grad()
+
+            loss, actor_loss, bc_loss = self.compute_actor_loss(batch)
+
+            loss.backward()
+            self._actor_optim.step()
+
+            extra_logs = (actor_loss.cpu().detach().numpy(), bc_loss.cpu().detach().numpy())
+
+        return loss.cpu().detach().numpy(), extra_logs
 
     def do_augmentation(self, batch: TorchMiniBatch):
+        #### Always assuming obs, next_obs in original space, i.e.: without normalized, standardized
+
         batch_aug = copy.deepcopy(batch)
         # Transforming the copied batch
-        if self._transform in ['gaussian']:
-            assert self._transform_params is not None, "Cannot find params for {} transform.".format(self._transform)
+        if self._transform in ['uniform']:
+            assert self._transform_params is not None, "Cannot find params for random transform."
             epsilon = self._transform_params.get('epsilon', None)
-            norm_min_max = self._transform_params.get('norm_min_max', False)
-            assert epsilon is not None, "Please provide the epsilon to perform {} transform.".format(self._transform)
+            assert epsilon is not None, "Please provide the epsilon for random transform."
 
-            if norm_min_max:
-                noise = torch.randn_like(batch_aug.observations, dtype=batch_aug.observations.dtype,
-                                         device=batch_aug.observations.device) * epsilon
-                batch_aug._observations = normalize(batch_aug._observations, self._obs_min,
-                                                    self._obs_max)
-                batch_aug._observations += noise
-                batch_aug._observations = torch.clamp(batch_aug._observations, 0, 1)
-                batch_aug._observations = denormalize(batch_aug._observations, self._obs_min,
-                                                      self._obs_max)
+            batch_aug._observations = self.scaler.transform(batch_aug._observations)
+            noise = torch.zeros_like(batch_aug._observations).uniform_(-epsilon, epsilon)
+            batch_aug._observations = batch_aug._observations + noise
+            batch_aug._observations = self.scaler.reverse_transform(batch_aug._observations)
+            batch_aug._observations = clamp(batch_aug._observations, self._obs_min, self._obs_max)
 
-                noise = torch.randn_like(batch_aug.observations, dtype=batch_aug.observations.dtype,
-                                         device=batch_aug.observations.device) * epsilon
-                batch_aug._next_observations = normalize(batch_aug._next_observations,
-                                                         self._obs_min, self._obs_max)
-                batch_aug._next_observations += noise
-                batch_aug._next_observations = torch.clamp(batch_aug._next_observations, 0, 1)
-                batch_aug._next_observations = denormalize(batch_aug._next_observations,
-                                                           self._obs_min, self._obs_max)
-            else:
-                noise = torch.randn_like(batch_aug.observations, dtype=batch_aug.observations.dtype,
-                                         device=batch_aug.observations.device) * epsilon
-                batch_aug._observations += noise
-                batch_aug._observations = clamp(batch_aug._observations,
-                                                self._obs_min, self._obs_max)
+            batch_aug._next_observations = self.scaler.transform(batch_aug._next_observations)
+            noise = torch.zeros_like(batch_aug._next_observations).uniform_(-epsilon, epsilon)
+            batch_aug._next_observations = batch_aug._next_observations + noise
+            batch_aug._next_observations = self.scaler.reverse_transform(batch_aug._next_observations)
+            batch_aug._next_observations = clamp(batch_aug._next_observations, self._obs_min, self._obs_max)
 
-                noise = torch.randn_like(batch_aug.observations, dtype=batch_aug.observations.dtype,
-                                         device=batch_aug.observations.device) * epsilon
-                batch_aug._next_observations += noise
-                batch_aug._next_observations = clamp(batch_aug._next_observations,
-                                                     self._obs_min, self._obs_max)
         elif self._transform in ['adversarial_training']:
             #### Using PGD with Linf-norm
             epsilon = self._transform_params.get('epsilon', None)
             num_steps = self._transform_params.get('num_steps', None)
             step_size = self._transform_params.get('step_size', None)
-            assert epsilon is not None and num_steps is not None and step_size is not None, \
-                "Please provide the epsilon to perform {} transform.".format(self._transform)
+            attack_type = self._transform_params.get('attack_type', None)
+            assert (epsilon is not None) and (num_steps is not None) and \
+                   (step_size is not None) and (attack_type is not None)
 
-            adv_x = generate_adv_example(batch_aug._observations, self._policy, self._q_func,
-                                         epsilon, num_steps, step_size,
-                                         self._obs_min, self._obs_max, self._scaler)
-            batch_aug._observations = adv_x
+            if attack_type in ['critic_normal']:
+                adv_x = critic_normal_attack(batch_aug._observations,
+                                      self._policy, self._q_func,
+                                      epsilon, num_steps, step_size,
+                                      self._obs_min, self._obs_max,
+                                      self._scaler)
+                batch_aug._observations = adv_x
 
-            adv_x = generate_adv_example(batch_aug._next_observations, self._policy, self._q_func,
+                adv_x = critic_normal_attack(batch_aug._next_observations,
+                                                self._policy, self._q_func,
+                                                epsilon, num_steps, step_size,
+                                                self._obs_min, self._obs_max,
+                                                self._scaler)
+                batch_aug._next_observations = adv_x
+
+            elif attack_type in ['actor_mad']:
+                adv_x = actor_mad_attack(batch_aug._observations,
+                                         self._policy, self._q_func,
                                          epsilon, num_steps, step_size,
-                                         self._obs_min, self._obs_max, self._scaler)
-            batch_aug._next_observations = adv_x
+                                         self._obs_min, self._obs_max,
+                                         self._scaler)
+                batch_aug._observations = adv_x
+
+                adv_x = actor_mad_attack(batch_aug._next_observations,
+                                         self._policy, self._q_func,
+                                         epsilon, num_steps, step_size,
+                                         self._obs_min, self._obs_max,
+                                         self._scaler)
+                batch_aug._next_observations = adv_x
+
+            else:
+                raise NotImplementedError
         else:
             raise NotImplementedError
         return batch, batch_aug
 
-    @train_api
-    @torch_api()
-    def update_critic(self, batch: TorchMiniBatch) -> np.ndarray:
-        assert self._critic_optim is not None
-
-        self._critic_optim.zero_grad()
-
-        batch._observations = self._scaler.reverse_transform(batch._observations)
-        batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
-
-        ###### TODO: Augment state here
-        batch, batch_aug = self.do_augmentation(batch)
-
-        batch._observations = self._scaler.transform(batch._observations)
-        batch._next_observations = self._scaler.transform(batch._next_observations)
-        batch_aug._observations = self._scaler.transform(batch_aug._observations)
-        batch_aug._next_observations = self._scaler.transform(batch_aug._next_observations)
-
-        q_tpn = self.compute_target(batch)          # Compute target for clean data
-        q_aug_tpn = self.compute_target(batch_aug)  # Compute target for augmented data
-        q_tpn = (q_tpn + q_aug_tpn) / 2
-
-        loss = self.compute_critic_loss(batch, q_tpn)
-        loss += self.compute_critic_loss(batch_aug, q_tpn)
-
-        loss.backward()
-        self._critic_optim.step()
-
-        return loss.cpu().detach().numpy()

@@ -39,14 +39,16 @@ def main():
 
     SUPPORTED_TRANSFORMS = ['gaussian', 'adversarial_training']
     parser.add_argument('--transform', type=str, default='gaussian', choices=SUPPORTED_TRANSFORMS)
+
+    parser.add_argument('--attack_type', type=str, default='critic_normal')
+    parser.add_argument('--robust_type', type=str, default='actor_mad')
+
     parser.add_argument('--epsilon', type=float, default=3e-4)
     parser.add_argument('--num_steps', type=int, default=5)
     parser.add_argument('--step_size', type=float, default=2.5e-5)
-    parser.add_argument('--norm_min_max', action='store_true')
-    parser.add_argument('--adv_version', type=str, default='a1_d1')
 
-    parser.add_argument('--use_action_from_data', action='store_true')
-    parser.add_argument('--act_on_adv', action='store_true')
+    parser.add_argument('--critic_reg_coef', type=float, default=0.1)
+    parser.add_argument('--actor_reg_coef', type=float, default=0.1)
 
     args = parser.parse_args()
 
@@ -60,26 +62,30 @@ def main():
 
     # Define version:
     """
-    - a1_d1: (1) Generating adv example by using actor loss with constant action. (2) Robust training
-    similar to DrQ.
-    - a2_d1: (1) Generating adv example by using critic loss (Bellman error). (2) Robust training
-    similar to DrQ. (Cannot use)
-    - a1_d2: (1) Generating adv example by using actor loss with constant action. (2) Robust training
-    similar to DrQ, but the target is computed for clean data, not adversarial data.
-    - a2_d2: (1) Generating adv example by using critic loss (Bellman error). (2) Robust training
-    similar to DrQ, but the target is computed for clean data, not adversarial data.
-    - a3_d2: (1) Generating adv example (both state and action) by using actor loss with constant
-    action. (2) Robust training similar to DrQ, but the target is computed for clean data, not adversarial data.
-    -
+    ********* Attack type:
+    - critic_normal: critic-based attack, generating adv example by using actor loss similar
+    SA-MDP, i.e.: s = argmin_s[Q(s_0, pi(s)], here Q function is training Q
+
+    - critic_sarsa: critic-based attack, generating adv example by using actor loss similar
+    SA-MDP, i.e.: s = argmin_s[Q(s_0, pi(s)], here Q function is trained again on online environment
+    in SARSA style
+
+    - actor_mad: actor-based attack, generating adv example by using MAD loss from SA-MDP, i.e.:
+    s = argmax_s[KL(pi(.|s_0) || pi(.|s))]
+
+    ********* Robust type:
+    - critic_reg:
+    - actor_mad: min_pi[KL(pi(.|s_0) || pi(.|s))]
+
     """
     transform_params = dict(
         epsilon=args.epsilon,
         num_steps=args.num_steps,
-        step_size=args.step_size,
-        norm_min_max=args.norm_min_max,
-        adv_version=args.adv_version,
-        use_action_from_data=args.use_action_from_data,
-        act_on_adv=args.act_on_adv
+        step_size=args.epsilon / args.num_steps,
+        attack_type=args.attack_type,
+        robust_type=args.robust_type,
+        critic_reg_coef=args.critic_reg_coef,
+        actor_reg_coef=args.actor_reg_coef
     )
     td3 = d3rlpy.algos.TD3PlusBCAug(
         actor_learning_rate=3e-4,
