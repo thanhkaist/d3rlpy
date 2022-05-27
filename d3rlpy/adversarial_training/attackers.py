@@ -8,8 +8,9 @@ from .utility import clamp
 
 def random_attack(x, epsilon, _obs_min, _obs_max, scaler):
     """" NOTE: x must be un-normalized """""
+    assert isinstance(x, torch.Tensor), "input x must be tensor."
     adv_x = scaler.transform(x)     # normalize original state
-    noise = np.random.uniform(-epsilon, epsilon, size=x.shape[0])
+    noise = torch.zeros_like(adv_x).uniform_(-epsilon, epsilon)
     adv_x = adv_x + noise
 
     # This clamp is performed in ORIGINAL scale

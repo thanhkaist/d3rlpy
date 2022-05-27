@@ -587,8 +587,10 @@ def evaluate_on_environment_with_attack(
         episode_rewards = []
         for _ in range(n_trials):
             observation = env.reset()
+            observation = tensor(observation, algo._impl.device)
             observation = attack(algo, observation, attack_type,
                                  attack_epsilon, attack_iteration, attack_stepsize)
+            observation = observation.cpu().numpy()
             episode_reward = 0.0
 
             # frame stacking
@@ -607,8 +609,10 @@ def evaluate_on_environment_with_attack(
                         action = algo.predict([observation])[0]
 
                 observation, reward, done, _ = env.step(action)
+                observation = tensor(observation, algo._impl.device)
                 observation = attack(algo, observation, attack_type,
                                      attack_epsilon, attack_iteration, attack_stepsize)
+                observation = observation.cpu().numpy()
                 episode_reward += reward
 
                 if is_image:
