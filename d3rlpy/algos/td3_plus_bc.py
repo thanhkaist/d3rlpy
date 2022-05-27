@@ -247,32 +247,9 @@ class TD3PlusBC(AlgoBase):
         batch_size: int = 256,
         log_interval: int = 2000,
         expl_noise: float = 0.1,
+        sarsa_reg: float = 0.1,
+        attack_epsilon: float = 1e-4
     ) -> None:
-        """Start training loop of online deep reinforcement learning.
-
-        Args:
-            env: gym-like environment.
-            buffer : replay buffer.
-            explorer: action explorer.
-            n_steps: the number of total steps to train.
-            n_steps_per_epoch: the number of steps per epoch.
-            update_interval: the number of steps per update.
-            update_start_step: the steps before starting updates.
-            random_steps: the steps for the initial random explortion.
-            eval_env: gym-like environment. If None, evaluation is skipped.
-            eval_epsilon: :math:`\\epsilon`-greedy factor during evaluation.
-            save_metrics: flag to record metrics. If False, the log
-                directory is not created and the model parameters are not saved.
-            save_interval: the number of epochs before saving models.
-            experiment_name: experiment name for logging. If not passed,
-                the directory name will be ``{class name}_online_{timestamp}``.
-            with_timestamp: flag to add timestamp string to the last of
-                directory name.
-            logdir: root directory name to save logs.
-            verbose: flag to show logged information on stdout.
-            show_progress: flag to show progress bar for iterations.
-
-        """
 
         if buffer is None:
             buffer = BufferSarsaWrapper(update_start_step, env=env)
@@ -294,7 +271,8 @@ class TD3PlusBC(AlgoBase):
         n_episodes = 0
         for _ in tqdm(range(1, update_start_step + 1)):
             action = self.sample_action([observation])[0]
-            action = action + np.random.normal(0, max_action * expl_noise, size=action_dim).astype(action.dtype)
+            nosie = np.random.normal(0, max_action * expl_noise, size=action_dim).astype(action.dtype)
+            action = (action + nosie).clip(-max_action, max_action)
 
             next_observation, reward, terminal, info = env.step(action)
             rollout_return += reward
@@ -324,6 +302,7 @@ class TD3PlusBC(AlgoBase):
             else:
                 observation = next_observation
 
+        robust_beta = 0.0
         # Start training loop
         for total_step in tqdm(range(1, n_steps + 1), desc="SARSA training"):
             batch, next_action = buffer.sample(
@@ -362,6 +341,7 @@ class TD3PlusBC(AlgoBase):
                     reduction="min"
                 )
 
+            # Normal Bellman error
             loss = self._impl._q_func.compute_error(
                 observations=batch.observations,
                 actions=batch.actions,
@@ -370,6 +350,19 @@ class TD3PlusBC(AlgoBase):
                 terminals=batch.terminals,
                 gamma=self._gamma ** batch.n_steps,
             )
+
+            # if sarsa_reg > 1e-5:
+            #     # TODO: Do we need to scale `attack_epsilon` by state_std and action_std ?
+            #     q_lb, q_ub = self._impl._q_func.compute_bound(
+            #         x_lb=batch.observations - attack_epsilon,
+            #         x_ub=batch.observations + attack_epsilon,
+            #         a_lb=batch.actions - attack_epsilon,
+            #         a_ub=batch.actions + attack_epsilon,
+            #         x=batch.observations, a=batch.actions,
+            #         beta=robust_beta,
+            #     )
+            #     critic_reg_loss = ((q_ub[0] - q_lb[0]).mean() + (q_ub[1] - q_lb[1]).mean()) / 2
+            #     loss += sarsa_reg * critic_reg_loss
 
             loss.backward()
             self._impl._critic_optim.step()
