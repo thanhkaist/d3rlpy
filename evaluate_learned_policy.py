@@ -26,15 +26,15 @@ parser.add_argument('--seed', type=int, default=1)
 parser.add_argument('--gpu', type=int)
 parser.add_argument('--n_eval_episodes', type=int, default=100)
 
-SUPPORTED_TRANSFORMS = ['gaussian', 'adversarial_training']
-parser.add_argument('--transform', type=str, default='gaussian', choices=SUPPORTED_TRANSFORMS)
+SUPPORTED_TRANSFORMS = ['random', 'adversarial_training']
+parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
 parser.add_argument('--epsilon', type=float, default=3e-4)
 parser.add_argument('--num_steps', type=int, default=5)
 parser.add_argument('--step_size', type=float, default=2.5e-5)
 parser.add_argument('--norm_min_max', action='store_true')
 parser.add_argument('--adv_version', type=str, default='a1_d1')
 
-SUPPORTED_ATTACKS = ['random', 'critic', 'action', 'sarsa']
+SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad']
 parser.add_argument('--attack_type', type=str, default='random', choices=SUPPORTED_ATTACKS)
 parser.add_argument('--attack_epsilon', type=float, default=1e-4)
 parser.add_argument('--attack_epsilon_list', type=float, default=1e-4, nargs='+')
