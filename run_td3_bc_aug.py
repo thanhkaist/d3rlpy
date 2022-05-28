@@ -38,10 +38,12 @@ def main():
     parser.add_argument('--noise_test_eps', type=float, default=1e-4)
 
     SUPPORTED_TRANSFORMS = ['random', 'adversarial_training']
-    parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
+    SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad']
+    SUPPORTED_ROBUSTS = ['actor_mad', 'critic_reg']
 
-    parser.add_argument('--attack_type', type=str, default='critic_normal')
-    parser.add_argument('--robust_type', type=str, default='actor_mad')
+    parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
+    parser.add_argument('--attack_type', type=str, default='critic_normal', choices=SUPPORTED_ATTACKS)
+    parser.add_argument('--robust_type', type=str, default='actor_mad', choices=SUPPORTED_ROBUSTS)
 
     parser.add_argument('--epsilon', type=float, default=3e-4)
     parser.add_argument('--num_steps', type=int, default=5)
@@ -135,7 +137,7 @@ def main():
         save_interval=10,
         logdir=args.logdir,
         scorers=scorer_funcs,
-        eval_interval=1,
+        eval_interval=10,
         wandb_project=args.project,
         use_wandb=args.wandb,
         experiment_name=f"TD3_BC_{ENV_NAME_MAPPING[args.dataset]}_{args.exp}"
