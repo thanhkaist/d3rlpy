@@ -74,7 +74,7 @@ def actor_mad_attack(x, _policy, _q_func, epsilon, num_steps, step_size, _obs_mi
 
     adv_x = ori_state_tensor.clone().detach()                       # already normalized
 
-    noise = torch.zeros_like(adv_x).uniform(-epsilon, epsilon)
+    noise = torch.zeros_like(adv_x).uniform_(-epsilon, epsilon)
     adv_x = adv_x + noise                                          # Add noise in `normalized space`
 
     # TODO: Optimized with PGD
