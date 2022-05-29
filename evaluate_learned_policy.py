@@ -52,7 +52,7 @@ def eval_clean_env(params):
     n_trials = params.n_eval_episodes
 
     episode_rewards = []
-    for i in tqdm(range(n_trials)):
+    for i in tqdm(range(n_trials), disable=(rank != 0)):
         if start_seed is None:
             env.seed(i)
         else:
