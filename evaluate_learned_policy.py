@@ -28,17 +28,13 @@ parser.add_argument('--n_eval_episodes', type=int, default=100)
 
 SUPPORTED_TRANSFORMS = ['random', 'adversarial_training']
 parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
-parser.add_argument('--epsilon', type=float, default=3e-4)
-parser.add_argument('--num_steps', type=int, default=5)
-parser.add_argument('--step_size', type=float, default=2.5e-5)
-parser.add_argument('--norm_min_max', action='store_true')
-parser.add_argument('--adv_version', type=str, default='a1_d1')
 
 SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad']
 parser.add_argument('--attack_type', type=str, default='random', choices=SUPPORTED_ATTACKS)
 parser.add_argument('--attack_epsilon', type=float, default=None)
+parser.add_argument('--attack_type_list', type=str, default='random', nargs='+')
 parser.add_argument('--attack_epsilon_list', type=float, default=1e-4, nargs='+')
-parser.add_argument('--attack_iteration', type=int, default=10)
+parser.add_argument('--attack_iteration', type=int, default=5)
 
 parser.add_argument('--disable_clean', action='store_true')
 parser.add_argument('--ckpt', type=str, default='.')
@@ -254,12 +250,13 @@ def main(args):
 
     td3._scaler.fit(transitions)  # Compute mean & std of dataset
 
-    if args.attack_type.startswith('sarsa'):
-        td3 = train_sarsa(td3, env)
+    # if args.attack_type.startswith('sarsa'):
+    #     td3 = train_sarsa(td3, env)
 
 
-    def eval_func(attack_epsilon, disable_clean):
+    def eval_func(attack_type, attack_epsilon, disable_clean):
         args_clone = copy.deepcopy(args)
+        args_clone.attack_type = attack_type
         args_clone.attack_epsilon = attack_epsilon
         args_clone.disable_clean = disable_clean
 
@@ -284,8 +281,7 @@ def main(args):
                 env_list.append(_env)
             if not args_clone.disable_clean:
                 unorm_score = eval_multiprocess_wrapper(td3, eval_clean_env, env_list, args_clone)
-            unorm_score_noise = eval_multiprocess_wrapper(td3, eval_env_under_attack, env_list,
-                                                          args_clone)
+            unorm_score_noise = eval_multiprocess_wrapper(td3, eval_env_under_attack, env_list, args_clone)
 
         if not args_clone.disable_clean:
             norm_score = env.env.wrapped_env.get_normalized_score(unorm_score) * 100
@@ -297,12 +293,14 @@ def main(args):
         print("Noise env: unorm = %.3f, norm = %.2f" % (unorm_score_noise, norm_score_noise))
         # print("=> Time(s) for evaluation: %.3f" % (time.time() - start))
 
-    for i, attack_epsilon in enumerate(args.attack_epsilon_list):
-        if i == 0:
-            disable_clean = args.disable_clean
-        else:
-            disable_clean = True
-        eval_func(attack_epsilon, disable_clean)
+    for attack_type in args.attack_type_list:
+        for i, attack_epsilon in enumerate(args.attack_epsilon_list):
+            if i == 0:
+                disable_clean = args.disable_clean
+            else:
+                disable_clean = True
+
+            eval_func(attack_type, attack_epsilon, disable_clean)
 
 
 
