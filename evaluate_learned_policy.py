@@ -48,7 +48,7 @@ args = parser.parse_args()
 ##### Functions used to evaluate
 """
 def eval_clean_env(params):
-    algo, env, start_seed, params = params
+    rank, algo, env, start_seed, params = params
     n_trials = params.n_eval_episodes
 
     episode_rewards = []
@@ -265,7 +265,7 @@ def main(args):
         if not args_clone.mp:
             print('[INFO] Normally evaluating...')
             start = time.time()
-            func_args = (td3, env, args_clone.seed, args_clone)  # algo, env, start_seed, args
+            func_args = (0, td3, env, args_clone.seed, args_clone)  # algo, env, start_seed, args
 
             if not args_clone.disable_clean:
                 unorm_score = eval_clean_env(func_args)
