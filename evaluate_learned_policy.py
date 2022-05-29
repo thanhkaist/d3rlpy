@@ -76,7 +76,7 @@ def eval_clean_env(params):
 
 
 def eval_env_under_attack(params):
-    algo, env, start_seed, params = params
+    rank, algo, env, start_seed, params = params
     n_trials = params.n_eval_episodes
 
     # Set seed
@@ -125,7 +125,7 @@ def eval_env_under_attack(params):
         return perturb_state
 
     episode_rewards = []
-    for i in tqdm(range(n_trials)):
+    for i in tqdm(range(n_trials), disable=(rank != 0)):
         if start_seed is None:
             env.seed(i)
         else:
@@ -166,7 +166,7 @@ def eval_multiprocess_wrapper(algo, func, env_list, params):
             params_tmp.n_eval_episodes = n_trials_per_each
 
         start_seed = n_trials_per_each * i + 1
-        args_list.append((algo, env_list[i], start_seed, params_tmp))
+        args_list.append((i, algo, env_list[i], start_seed, params_tmp))
 
     with mp.Pool(params.n_processes) as pool:
         unorm_score = pool.map(func, args_list)
