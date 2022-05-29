@@ -87,8 +87,9 @@ def eval_env_under_attack(params):
     attack_epsilon = params.attack_epsilon
     attack_iteration = params.attack_iteration
     attack_stepsize = attack_epsilon / attack_iteration
-    print("[INFO] Using %s attack: eps=%f, n_iters=%d, sz=%f" %
-          (params.attack_type.upper(), attack_epsilon, attack_iteration, attack_stepsize))
+    if rank == 0:
+        print("[INFO] Using %s attack: eps=%f, n_iters=%d, sz=%f" %
+              (params.attack_type.upper(), attack_epsilon, attack_iteration, attack_stepsize))
 
     def attack(state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None):
         if type in ['random']:
@@ -282,6 +283,8 @@ def main(args):
             if not args_clone.disable_clean:
                 unorm_score = eval_multiprocess_wrapper(td3, eval_clean_env, env_list, args_clone)
             unorm_score_noise = eval_multiprocess_wrapper(td3, eval_env_under_attack, env_list, args_clone)
+
+            del env_list
 
         if not args_clone.disable_clean:
             norm_score = env.env.wrapped_env.get_normalized_score(unorm_score) * 100
