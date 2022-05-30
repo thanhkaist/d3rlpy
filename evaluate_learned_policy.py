@@ -17,7 +17,7 @@ import os
 from d3rlpy.models.torch.policies import WrapperBoundDeterministicPolicy
 from d3rlpy.models.torch.q_functions.ensemble_q_function import WrapperBoundEnsembleContinuousQFunction
 from d3rlpy.adversarial_training.attackers import critic_normal_attack, actor_mad_attack, random_attack
-from d3rlpy.adversarial_training.utility import tensor
+from d3rlpy.adversarial_training.utility import tensor, EvalLogger
 
 
 parser = argparse.ArgumentParser()
@@ -41,6 +41,7 @@ parser.add_argument('--ckpt', type=str, default='.')
 parser.add_argument('--mp', action='store_true')
 parser.add_argument('--n_processes', type=int, default=5)
 
+parser.add_argument('--eval_logdir', type=str, default='eval_results')
 args = parser.parse_args()
 
 
@@ -231,6 +232,11 @@ def train_sarsa(algo, env, buffer=None, n_sarsa_steps=1000, n_warmups=1000):
 
 
 def main(args):
+    if not os.path.exists(args.eval_logdir):
+        os.makedirs(args.eval_logdir)
+
+    writer = EvalLogger(args)
+
     dataset, env = d3rlpy.datasets.get_dataset(args.dataset)
 
     d3rlpy.seed(args.seed)
@@ -288,7 +294,14 @@ def main(args):
 
         if not args_clone.disable_clean:
             norm_score = env.env.wrapped_env.get_normalized_score(unorm_score) * 100
+            writer.log(attack_type="clean", attack_epsilon=attack_epsilon,
+                       attack_iteration=args_clone.attack_iteration,
+                       unorm_score=unorm_score, norm_score=norm_score)
         norm_score_noise = env.env.wrapped_env.get_normalized_score(unorm_score_noise) * 100
+
+        writer.log(attack_type=attack_type, attack_epsilon=attack_epsilon,
+                   attack_iteration=args_clone.attack_iteration,
+                   unorm_score=unorm_score, norm_score=norm_score)
 
         print("***** Env: %s - method: %s *****" % (args_clone.dataset, args_clone.ckpt.split('/')[-3]))
         if unorm_score is not None:
@@ -305,7 +318,7 @@ def main(args):
 
             eval_func(attack_type, attack_epsilon, disable_clean)
 
-
+    writer.close()
 
 
 if __name__ == '__main__':

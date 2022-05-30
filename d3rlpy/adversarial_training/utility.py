@@ -1,3 +1,7 @@
+import os
+import json
+import time
+
 import torch
 
 import numpy as np
@@ -69,3 +73,66 @@ def clamp(x, vec_min, vec_max):
     x = torch.max(x, vec_min)
     x = torch.min(x, vec_max)
     return x
+
+
+class EvalLogger():
+    def __init__(self, args):
+
+        # Extract required information
+        checkpoint_step = args.ckpt.split('/')[-1]
+        exp_path = args.ckpt.replace(checkpoint_step, '')
+
+        f = open(os.path.join(exp_path, "params.json"))
+        exp_params = json.load(f)
+
+        timestamp = time.localtime()
+        timestamp = time.strftime("%m_%d-%H_%M_%S", timestamp)
+
+        self.ckpt = args.ckpt
+        self.exp_params = exp_params
+
+        self.exp_name = args.ckpt.split('/')[-3]
+        self.exp_name_with_seed = args.ckpt.split('/')[-2]
+        self.checkpoint_step = checkpoint_step
+
+        self.env_name = exp_params['env_name']
+        self.filename = "eval_" + self.exp_name + '_' + timestamp + '.txt'
+        self.logfile = os.path.join(args.eval_logdir, self.filename)
+
+        self.writer = open(self.logfile, "w")
+        self.write_header()
+
+    def write_header(self):
+        self.writer.write("********* ATTACK EVALUATION *********\n\n")
+
+        self.writer.write("Environment: %s\n" % (self.env_name))
+        self.writer.write("Experiment name: %s\n" % (self.exp_name))
+        self.writer.write("Experiment name with timestamp: %s\n" % (self.exp_name_with_seed))
+        self.writer.write("Checkpoint step: %s\n" % (self.checkpoint_step))
+        self.writer.write("Full path: %s\n" % (self.ckpt))
+        self.writer.write("\n")
+        self.writer.write("TRAINING PARAMS: \n")
+        self.writer.write("Attack type: %s\n" % (self.exp_params['transform_params']['attack_type']))
+        self.writer.write("\t epsilon: %s\n" % (self.exp_params['transform_params']['epsilon']))
+        self.writer.write("\t num_steps: %s\n" % (self.exp_params['transform_params']['num_steps']))
+        self.writer.write("\t step_size: %s\n" % (self.exp_params['transform_params']['step_size']))
+        self.writer.write("Robust type: %s\n" % (self.exp_params['transform_params']['robust_type']))
+        self.writer.write("\t critic_reg_coef: %s\n" % (self.exp_params['transform_params']['critic_reg_coef']))
+        self.writer.write("\t actor_reg_coef: %s\n" % (self.exp_params['transform_params']['actor_reg_coef']))
+        self.writer.write("\n")
+        self.writer.write("\n")
+
+    def log(self, attack_type, attack_epsilon, attack_iteration, unorm_score, norm_score):
+        if attack_type == 'clean':
+            self.writer.write("Clean performance: unorm_score=%.3f, norm = %.2f\n" %
+                              (unorm_score, norm_score)
+                              )
+        else:
+            self.writer.write("Attack=%s - epsilon=%.4f, n_iters=%d: unorm_score=%.3f, norm = %.2f\n"
+                              % (attack_type.upper(), attack_epsilon, attack_iteration,
+                                 unorm_score, norm_score)
+                              )
+
+    def close(self):
+        self.writer.close()
+
