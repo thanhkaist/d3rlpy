@@ -95,7 +95,11 @@ class EvalLogger():
         self.exp_name_with_seed = args.ckpt.split('/')[-2]
         self.checkpoint_step = checkpoint_step
 
-        self.env_name = exp_params['env_name']
+        if 'env_name' in exp_params.keys():
+            self.env_name = exp_params['env_name']
+        else:
+            self.env_name = 'unknown'
+
         self.filename = "eval_" + self.exp_name + '_' + timestamp + '.txt'
         self.logfile = os.path.join(args.eval_logdir, self.filename)
 
@@ -111,16 +115,17 @@ class EvalLogger():
         self.writer.write("Checkpoint step: %s\n" % (self.checkpoint_step))
         self.writer.write("Full path: %s\n" % (self.ckpt))
         self.writer.write("\n")
-        self.writer.write("TRAINING PARAMS: \n")
-        self.writer.write("Attack type: %s\n" % (self.exp_params['transform_params']['attack_type']))
-        self.writer.write("\t epsilon: %s\n" % (self.exp_params['transform_params']['epsilon']))
-        self.writer.write("\t num_steps: %s\n" % (self.exp_params['transform_params']['num_steps']))
-        self.writer.write("\t step_size: %s\n" % (self.exp_params['transform_params']['step_size']))
-        self.writer.write("Robust type: %s\n" % (self.exp_params['transform_params']['robust_type']))
-        self.writer.write("\t critic_reg_coef: %s\n" % (self.exp_params['transform_params']['critic_reg_coef']))
-        self.writer.write("\t actor_reg_coef: %s\n" % (self.exp_params['transform_params']['actor_reg_coef']))
-        self.writer.write("\n")
-        self.writer.write("\n")
+        if 'transform_params' in self.exp_params:
+            self.writer.write("TRAINING PARAMS: \n")
+            self.writer.write("Attack type: %s\n" % (self.exp_params['transform_params']['attack_type']))
+            self.writer.write("\t epsilon: %s\n" % (self.exp_params['transform_params']['epsilon']))
+            self.writer.write("\t num_steps: %s\n" % (self.exp_params['transform_params']['num_steps']))
+            self.writer.write("\t step_size: %s\n" % (self.exp_params['transform_params']['step_size']))
+            self.writer.write("Robust type: %s\n" % (self.exp_params['transform_params']['robust_type']))
+            self.writer.write("\t critic_reg_coef: %s\n" % (self.exp_params['transform_params']['critic_reg_coef']))
+            self.writer.write("\t actor_reg_coef: %s\n" % (self.exp_params['transform_params']['actor_reg_coef']))
+            self.writer.write("\n")
+            self.writer.write("\n")
 
     def log(self, attack_type, attack_epsilon, attack_iteration, unorm_score, norm_score):
         if attack_type == 'clean':
