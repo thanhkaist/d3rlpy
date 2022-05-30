@@ -34,7 +34,7 @@ parser.add_argument('--attack_type', type=str, default='random', choices=SUPPORT
 parser.add_argument('--attack_epsilon', type=float, default=None)
 parser.add_argument('--attack_type_list', type=str, default='random', nargs='+')
 parser.add_argument('--attack_epsilon_list', type=float, default=1e-4, nargs='+')
-parser.add_argument('--attack_iteration', type=int, default=5)
+parser.add_argument('--attack_iteration', type=int, default=10)
 
 parser.add_argument('--disable_clean', action='store_true')
 parser.add_argument('--ckpt', type=str, default='.')
