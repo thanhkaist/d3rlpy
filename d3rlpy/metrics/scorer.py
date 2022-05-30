@@ -576,7 +576,7 @@ def evaluate_on_environment_with_attack(
 
         else:
             raise NotImplementedError
-        return perturb_state
+        return perturb_state.squeeze()
 
     def scorer(algo: AlgoProtocol, *args: Any) -> float:
         if is_image:
