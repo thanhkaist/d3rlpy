@@ -128,11 +128,12 @@ class TD3PlusBCAugImpl(TD3Impl):
     @train_api
     @torch_api()
     def update_critic(self, batch: TorchMiniBatch) \
-        -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        -> Tuple[np.ndarray, Tuple]:
         assert self._critic_optim is not None
         robust_type = self._transform_params.get('robust_type', None)
+        critic_reg_coef = self._transform_params.get('critic_reg_coef', 0)
 
-        if robust_type in ['critic_reg']:
+        if 'critic_drq' in robust_type:
             batch._observations = self._scaler.reverse_transform(batch._observations)
             batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
 
@@ -165,6 +166,52 @@ class TD3PlusBCAugImpl(TD3Impl):
 
             loss.backward()
             self._critic_optim.step()
+
+            extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
+                          q1_pred_adv_diff, q2_pred_adv_diff)
+        elif 'critic_reg' in robust_type:
+            batch._observations = self._scaler.reverse_transform(batch._observations)
+            batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
+
+            batch, batch_aug = self.do_augmentation(batch)
+
+            with torch.no_grad():
+                q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
+                q1_pred = q_prediction[0].cpu().detach()
+                q2_pred = q_prediction[1].cpu().detach()
+
+                q_prediction_adv = self._q_func(batch_aug.observations, batch_aug.actions,
+                                                reduction="none")
+                q1_pred_adv_diff = (q_prediction_adv[0].cpu().detach() - q1_pred).numpy().mean()
+                q2_pred_adv_diff = (q_prediction_adv[1].cpu().detach() - q2_pred).numpy().mean()
+                q1_pred = q1_pred.numpy().mean()
+                q2_pred = q2_pred.numpy().mean()
+
+            batch._observations = self._scaler.transform(batch._observations)
+            batch._next_observations = self._scaler.transform(batch._next_observations)
+            batch_aug._observations = self._scaler.transform(batch_aug._observations)
+            batch_aug._next_observations = self._scaler.transform(batch_aug._next_observations)
+
+            self._critic_optim.zero_grad()
+
+            q_tpn = self.compute_target(batch)  # Compute target for clean data
+
+            loss = self.compute_critic_loss(batch, q_tpn)
+
+            with torch.no_grad():
+                current_action = self._policy(batch.observations)
+                current_action_adv = self._policy(batch_aug.observations)
+                gt_qval = self._q_func(batch.observations, current_action).detach()
+
+            critic_reg_loss = ((self._q_func(batch_aug.observations, current_action_adv) -
+                               gt_qval) ** 2).mean()
+            loss += critic_reg_coef * critic_reg_loss
+
+            loss.backward()
+            self._critic_optim.step()
+
+            extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
+                          q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_loss.item())
         else:
             q1_pred_adv_diff, q2_pred_adv_diff = 0.0, 0.0
             with torch.no_grad():
@@ -181,8 +228,10 @@ class TD3PlusBCAugImpl(TD3Impl):
             loss.backward()
             self._critic_optim.step()
 
-        return loss.cpu().detach().numpy(), q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred, \
-               q1_pred_adv_diff, q2_pred_adv_diff
+            extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
+                          q1_pred_adv_diff, q2_pred_adv_diff)
+
+        return loss.cpu().detach().numpy(), extra_logs
 
     @train_api
     @torch_api()
@@ -192,7 +241,7 @@ class TD3PlusBCAugImpl(TD3Impl):
         assert self._actor_optim is not None
         robust_type = self._transform_params.get('robust_type', None)
 
-        if robust_type in ['actor_mad']:
+        if 'actor_mad' in robust_type:
             actor_reg_coef = self._transform_params.get('actor_reg_coef', 0)
 
             batch._observations = self._scaler.reverse_transform(batch._observations)
@@ -225,7 +274,7 @@ class TD3PlusBCAugImpl(TD3Impl):
             extra_logs = (actor_loss.cpu().detach().numpy(), bc_loss.cpu().detach().numpy(),
                           action_reg_loss)
 
-        elif robust_type in ['actor_on_adv']:
+        elif 'actor_on_adv' in robust_type:
             actor_reg_coef = self._transform_params.get('actor_reg_coef', 0)
             prob_of_actor_on_adv = self._transform_params.get('prob_of_actor_on_adv', 0)
             assert actor_reg_coef == 0 and (0 < prob_of_actor_on_adv <= 1)

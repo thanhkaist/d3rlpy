@@ -39,11 +39,11 @@ def main():
 
     SUPPORTED_TRANSFORMS = ['random', 'adversarial_training']
     SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad']
-    SUPPORTED_ROBUSTS = ['actor_mad', 'critic_reg', 'actor_on_adv']
+    SUPPORTED_ROBUSTS = ['actor_mad', 'critic_reg', 'critic_drq', 'actor_on_adv']
 
     parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
     parser.add_argument('--attack_type', type=str, default='critic_normal', choices=SUPPORTED_ATTACKS)
-    parser.add_argument('--robust_type', type=str, default='actor_mad', choices=SUPPORTED_ROBUSTS)
+    parser.add_argument('--robust_type', type=str, default='actor_mad', choices=SUPPORTED_ROBUSTS, nargs='+')
 
     parser.add_argument('--epsilon', type=float, default=3e-4)
     parser.add_argument('--num_steps', type=int, default=5)
@@ -77,7 +77,7 @@ def main():
     s = argmax_s[KL(pi(.|s_0) || pi(.|s))]
 
     ********* Robust type:
-    - critic_reg:
+    - critic_reg: min(Q(s, a))
     - actor_mad: min_pi[KL(pi(.|s_0) || pi(.|s))]
     - actor_with_adv: Train the actor with adv example without regularizer (similar to augmentation),
     the training is conducted with a probability p, with p % for normal training,
@@ -142,7 +142,7 @@ def main():
         save_interval=10,
         logdir=args.logdir,
         scorers=scorer_funcs,
-        eval_interval=10,
+        eval_interval=100,
         wandb_project=args.project,
         use_wandb=args.wandb,
         experiment_name=f"TD3_BC_{ENV_NAME_MAPPING[args.dataset]}_{args.exp}"

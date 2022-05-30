@@ -189,8 +189,18 @@ class TD3PlusBCAug(AlgoBase):
 
         metrics = {}
 
-        critic_loss, q_target, current_q1, current_q2, q1_pred_adv_diff, q2_pred_adv_diff \
+        critic_loss, extra_logs \
             = self._impl.update_critic(batch)
+
+        if len(extra_logs) == 5:
+            q_target, current_q1, current_q2, q1_pred_adv_diff, q2_pred_adv_diff = extra_logs
+            critic_reg_loss = 0
+        elif len(extra_logs) == 6:
+            q_target, current_q1, current_q2, q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_loss \
+                = extra_logs
+        else:
+            raise ValueError
+
         metrics.update({
             "critic_loss": critic_loss,
             "q_target": q_target,
@@ -198,6 +208,7 @@ class TD3PlusBCAug(AlgoBase):
             "q2_prediction": current_q2,
             "q1_adv_diff": q1_pred_adv_diff,
             "q2_adv_diff": q2_pred_adv_diff,
+            "critic_reg_loss": critic_reg_loss
         })
 
         # delayed policy update
