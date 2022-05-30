@@ -39,7 +39,7 @@ def main():
 
     SUPPORTED_TRANSFORMS = ['random', 'adversarial_training']
     SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad']
-    SUPPORTED_ROBUSTS = ['actor_mad', 'critic_reg']
+    SUPPORTED_ROBUSTS = ['actor_mad', 'critic_reg', 'actor_on_adv']
 
     parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
     parser.add_argument('--attack_type', type=str, default='critic_normal', choices=SUPPORTED_ATTACKS)
@@ -51,6 +51,7 @@ def main():
 
     parser.add_argument('--critic_reg_coef', type=float, default=0.1)
     parser.add_argument('--actor_reg_coef', type=float, default=0.1)
+    parser.add_argument('--prob_of_actor_on_adv', type=float, default=0.5)
 
     args = parser.parse_args()
 
@@ -78,6 +79,9 @@ def main():
     ********* Robust type:
     - critic_reg:
     - actor_mad: min_pi[KL(pi(.|s_0) || pi(.|s))]
+    - actor_with_adv: Train the actor with adv example without regularizer (similar to augmentation),
+    the training is conducted with a probability p, with p % for normal training,
+    (1-p) % for training with adv_x
 
     """
     transform_params = dict(
@@ -87,7 +91,8 @@ def main():
         attack_type=args.attack_type,
         robust_type=args.robust_type,
         critic_reg_coef=args.critic_reg_coef,
-        actor_reg_coef=args.actor_reg_coef
+        actor_reg_coef=args.actor_reg_coef,
+        prob_of_actor_on_adv=args.prob_of_actor_on_adv,
     )
     td3 = d3rlpy.algos.TD3PlusBCAug(
         actor_learning_rate=3e-4,

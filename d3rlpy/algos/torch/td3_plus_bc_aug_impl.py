@@ -225,6 +225,40 @@ class TD3PlusBCAugImpl(TD3Impl):
             extra_logs = (actor_loss.cpu().detach().numpy(), bc_loss.cpu().detach().numpy(),
                           action_reg_loss)
 
+        elif robust_type in ['actor_on_adv']:
+            actor_reg_coef = self._transform_params.get('actor_reg_coef', 0)
+            prob_of_actor_on_adv = self._transform_params.get('prob_of_actor_on_adv', 0)
+            assert actor_reg_coef == 0 and (0 < prob_of_actor_on_adv <= 1)
+
+            batch._observations = self._scaler.reverse_transform(batch._observations)
+            batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
+
+            batch, batch_aug = self.do_augmentation(batch)
+
+            batch._observations = self._scaler.transform(batch._observations)
+            batch._next_observations = self._scaler.transform(batch._next_observations)
+            batch_aug._observations = self._scaler.transform(batch_aug._observations)
+            batch_aug._next_observations = self._scaler.transform(batch_aug._next_observations)
+
+            # Q function should be inference mode for stability
+            self._q_func.eval()
+
+            self._actor_optim.zero_grad()
+
+            prob = np.random.uniform(1)
+            if prob <= prob_of_actor_on_adv:
+                loss, actor_loss, bc_loss = self.compute_actor_loss(batch_aug)
+            else:
+                loss, actor_loss, bc_loss = self.compute_actor_loss(batch)
+
+            action_reg_loss = 0
+
+            loss.backward()
+            self._actor_optim.step()
+
+            extra_logs = (actor_loss.cpu().detach().numpy(), bc_loss.cpu().detach().numpy(),
+                          action_reg_loss)
+
         else:
 
             # Q function should be inference mode for stability
@@ -270,7 +304,22 @@ class TD3PlusBCAugImpl(TD3Impl):
             assert (epsilon is not None) and (num_steps is not None) and \
                    (step_size is not None) and (attack_type is not None)
 
-            if attack_type in ['critic_normal']:
+            if attack_type in ['random']:
+                assert self._transform_params is not None, "Cannot find params for random transform."
+                epsilon = self._transform_params.get('epsilon', None)
+                assert epsilon is not None, "Please provide the epsilon for random transform."
+
+                adv_x = random_attack(batch_aug._observations, epsilon,
+                                      self._obs_min, self._obs_max,
+                                      self.scaler)
+                batch_aug._observations = adv_x
+
+                adv_x = random_attack(batch_aug._next_observations, epsilon,
+                                      self._obs_min, self._obs_max,
+                                      self.scaler)
+                batch_aug._next_observations = adv_x
+
+            elif attack_type in ['critic_normal']:
                 adv_x = critic_normal_attack(batch_aug._observations,
                                       self._policy, self._q_func,
                                       epsilon, num_steps, step_size,
