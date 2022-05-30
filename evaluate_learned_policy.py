@@ -301,7 +301,7 @@ def main(args):
 
         writer.log(attack_type=attack_type, attack_epsilon=attack_epsilon,
                    attack_iteration=args_clone.attack_iteration,
-                   unorm_score=unorm_score, norm_score=norm_score)
+                   unorm_score=unorm_score_noise, norm_score=norm_score_noise)
 
         print("***** Env: %s - method: %s *****" % (args_clone.dataset, args_clone.ckpt.split('/')[-3]))
         if unorm_score is not None:
