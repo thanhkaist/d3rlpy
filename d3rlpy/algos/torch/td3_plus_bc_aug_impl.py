@@ -263,7 +263,7 @@ class TD3PlusBCAugImpl(TD3Impl):
 
             if actor_reg_coef > 0:
                 action_reg_loss =  ((self._policy(batch_aug.observations) - batch.actions) ** 2).mean()
-                loss += action_reg_loss * action_reg_loss
+                loss += actor_reg_coef * action_reg_loss
             else:
                 action_reg_loss = 0
 
