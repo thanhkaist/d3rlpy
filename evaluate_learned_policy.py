@@ -86,7 +86,12 @@ def eval_env_under_attack(params):
 
     attack_type = params.attack_type
     attack_epsilon = params.attack_epsilon
-    attack_iteration = params.attack_iteration
+    if attack_type in ['critic_normal']:
+        attack_iteration = 5
+    elif attack_type in ['actor_mad']:
+        attack_iteration = 10
+    else:
+        attack_iteration = 1
     attack_stepsize = attack_epsilon / attack_iteration
     if rank == 0:
         print("[INFO] Using %s attack: eps=%f, n_iters=%d, sz=%f" %
@@ -124,7 +129,7 @@ def eval_env_under_attack(params):
 
         else:
             raise NotImplementedError
-        return perturb_state
+        return perturb_state.squeeze()
 
     episode_rewards = []
     for i in tqdm(range(n_trials), disable=(rank != 0)):
