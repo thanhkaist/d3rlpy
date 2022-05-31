@@ -1,5 +1,6 @@
 import copy
 import json
+import os.path
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
 from typing import (
@@ -369,6 +370,8 @@ class LearnableBase:
         ] = None,
         shuffle: bool = True,
         eval_interval: int = 1,
+        finetune: Optional[bool] = False,
+        checkpoint: Optional[str] = None,
         callback: Optional[Callable[["LearnableBase", int, int], None]] = None,
     ) -> List[Tuple[int, Dict[str, float]]]:
         """Trains with the given dataset.
@@ -428,6 +431,8 @@ class LearnableBase:
                 scorers,
                 shuffle,
                 eval_interval,
+                finetune,
+                checkpoint,
                 callback,
             )
         )
@@ -456,6 +461,8 @@ class LearnableBase:
         ] = None,
         shuffle: bool = True,
         eval_interval: int = 1,
+        finetune: Optional[bool] = False,
+        checkpoint: Optional[str] = None,
         callback: Optional[Callable[["LearnableBase", int, int], None]] = None,
     ) -> Generator[Tuple[int, Dict[str, float]], None, None]:
         """Iterate over epochs steps to train with the given dataset. At each
@@ -612,6 +619,16 @@ class LearnableBase:
 
         # refresh loss history
         self._loss_history = defaultdict(list)
+
+        if finetune:
+            assert checkpoint is not None
+            LOG.debug("Loading pretrained model: %s" % (checkpoint))
+            if not os.path.isfile(checkpoint):
+                LOG.debug("Checkpoint is not found: %s" % (checkpoint))
+                raise ValueError
+
+            self.load_model(checkpoint)
+            LOG.debug("Load model successfully.")
 
         # training loop
         total_step = 0

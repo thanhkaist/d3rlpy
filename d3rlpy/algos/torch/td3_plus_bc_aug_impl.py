@@ -192,18 +192,20 @@ class TD3PlusBCAugImpl(TD3Impl):
             batch_aug._observations = self._scaler.transform(batch_aug._observations)
             batch_aug._next_observations = self._scaler.transform(batch_aug._next_observations)
 
+
+            with torch.no_grad():
+                current_action = self._policy(batch.observations)
+                current_action_adv = self._policy(batch_aug.observations).detach()
+                gt_qval = self._q_func(batch.observations, current_action).detach()
+
+
             self._critic_optim.zero_grad()
 
             q_tpn = self.compute_target(batch)  # Compute target for clean data
 
             loss = self.compute_critic_loss(batch, q_tpn)
 
-            with torch.no_grad():
-                current_action = self._policy(batch.observations)
-                current_action_adv = self._policy(batch_aug.observations)
-                gt_qval = self._q_func(batch.observations, current_action).detach()
-
-            critic_reg_loss = ((self._q_func(batch_aug.observations, current_action_adv) -
+            critic_reg_loss = ((self._q_func(batch.observations, current_action_adv) -
                                gt_qval) ** 2).mean()
             loss += critic_reg_coef * critic_reg_loss
 

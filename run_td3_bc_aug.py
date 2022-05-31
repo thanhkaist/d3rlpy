@@ -32,10 +32,8 @@ def main():
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--logdir', type=str, default='d3rlpy_logs')
     parser.add_argument('--n_steps', type=int, default=500000)
+    parser.add_argument('--eval_interval', type=int, default=50)
     parser.add_argument('--n_eval_episodes', type=int, default=10)
-
-    parser.add_argument('--noise_test', type=str, default='uniform')
-    parser.add_argument('--noise_test_eps', type=float, default=1e-4)
 
     SUPPORTED_TRANSFORMS = ['random', 'adversarial_training']
     SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad']
@@ -52,6 +50,9 @@ def main():
     parser.add_argument('--critic_reg_coef', type=float, default=0.1)
     parser.add_argument('--actor_reg_coef', type=float, default=0.1)
     parser.add_argument('--prob_of_actor_on_adv', type=float, default=0.5)
+
+    parser.add_argument('--finetune', action='store_true')
+    parser.add_argument('--ckpt', type=str, default='.')
 
     args = parser.parse_args()
 
@@ -142,10 +143,12 @@ def main():
         save_interval=10,
         logdir=args.logdir,
         scorers=scorer_funcs,
-        eval_interval=50,
+        eval_interval=args.eval_interval,
         wandb_project=args.project,
         use_wandb=args.wandb,
-        experiment_name=f"{ENV_NAME_MAPPING[args.dataset]}_{args.exp}"
+        experiment_name=f"{ENV_NAME_MAPPING[args.dataset]}_{args.exp}",
+        finetune=args.finetune,
+        checkpoint=args.ckpt
     )
 
 
