@@ -39,6 +39,26 @@ ENV_OBS_RANGE = {
     ),
 }
 
+ENV_NAME_MAPPING = {
+    'walker2d-random-v0': 'w2d-r',
+    'walker2d-medium-v0': 'w2d-m',
+    'walker2d-medium-replay-v0': 'w2d-m-re',
+    'walker2d-medium-expert-v0': 'w2d-m-e',
+    'walker2d-expert-v0': 'w2d-e',
+    'hopper-random-v0': 'hop-r',
+    'hopper-medium-v0': 'hop-m',
+    'hopper-medium-replay-v0': 'hop-m-re',
+    'hopper-medium-expert-v0': 'hop-m-e',
+    'hopper-expert-v0': 'hop-e',
+    'halfcheetah-random-v0': 'che-r',
+    'halfcheetah-medium-v0': 'che-m',
+    'halfcheetah-medium-replay-v0': 'che-m-re',
+    'halfcheetah-medium-expert-v0': 'che-m-e',
+    'halfcheetah-expert-v0': 'che-e',
+    'unknown': 'unknown'
+}
+
+
 
 def standardization(x, mean, std, eps=1e-3):
     return (x - mean) / (std + eps)
@@ -100,7 +120,7 @@ class EvalLogger():
         else:
             self.env_name = 'unknown'
 
-        self.filename = "eval_" + self.exp_name + '_' + timestamp + '.txt'
+        self.filename = "eval_" + ENV_NAME_MAPPING[self.env_name] + '_' + self.exp_name + '_' + timestamp + '.txt'
         self.logfile = os.path.join(args.eval_logdir, self.filename)
 
         self.writer = open(self.logfile, "w")
