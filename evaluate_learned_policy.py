@@ -87,7 +87,7 @@ def eval_env_under_attack(params):
     attack_type = params.attack_type
     attack_epsilon = params.attack_epsilon
     if attack_type in ['critic_normal']:
-        attack_iteration = 5
+        attack_iteration = 10
     elif attack_type in ['actor_mad']:
         attack_iteration = 10
     else:
