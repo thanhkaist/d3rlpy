@@ -107,12 +107,14 @@ def make_checkpoint_list(main_args):
     elif os.path.isdir(main_args.ckpt):
         entries = os.listdir(main_args.ckpt)
         entries.sort()
+        print('Found {} experiments.'.format(len(entries)))
         ckpt_list = []
         for entry in entries:
             ckpt_file = os.path.join(main_args.ckpt, entry, main_args.ckpt_steps)
             assert os.path.isfile(ckpt_file), \
                 "Cannot file checkpoint {} in {}".format(main_args.ckpt_steps, ckpt_file)
             ckpt_list.append(ckpt_file)
+        print('Found {} checkpoints.'.format(len(ckpt_list)))
     else:
         print("Path doesn't exist: ", main_args.ckpt)
         raise ValueError

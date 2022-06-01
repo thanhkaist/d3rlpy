@@ -142,6 +142,7 @@ def main(args):
     # Scan through all checkpoints
     for checkpoint in ckpt_list[:args.n_seeds_want_to_test]:
         args.ckpt = checkpoint
+        print('Evaluating: ', args.ckpt)
         writer = EvalLogger(args)
 
         td3.load_model(checkpoint)
