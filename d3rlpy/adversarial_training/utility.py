@@ -8,9 +8,9 @@ import torch
 import numpy as np
 
 
-from d3rlpy.models.torch.policies import WrapperBoundDeterministicPolicy
-from d3rlpy.models.torch.q_functions.ensemble_q_function import WrapperBoundEnsembleContinuousQFunction
-from d3rlpy.adversarial_training.attackers import critic_normal_attack, actor_mad_attack, random_attack
+from ..models.torch.policies import WrapperBoundDeterministicPolicy
+from ..models.torch.q_functions.ensemble_q_function import WrapperBoundEnsembleContinuousQFunction
+from .attackers import critic_normal_attack, actor_mad_attack, random_attack
 
 ENV_OBS_RANGE = {
     'walker2d-v0': dict(
