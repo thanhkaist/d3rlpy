@@ -13,13 +13,8 @@ import copy
 import os
 
 
-from d3rlpy.adversarial_training.utility import (
-    make_checkpoint_list,
-    make_bound_for_network,
-    eval_clean_env,
-    eval_env_under_attack,
-    EvalLogger
-)
+from d3rlpy.adversarial_training.utility import make_checkpoint_list, EvalLogger
+from d3rlpy.adversarial_training.eval_utility import eval_clean_env, eval_env_under_attack
 
 
 parser = argparse.ArgumentParser()
