@@ -11,7 +11,7 @@ from ..preprocessing.stack import StackedObservation
 
 import d4rl
 from ..adversarial_training.attackers import critic_normal_attack, actor_mad_attack, random_attack
-from..adversarial_training.utility import tensor
+from ..adversarial_training.utility import tensor
 
 WINDOW_SIZE = 1024
 

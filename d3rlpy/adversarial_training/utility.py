@@ -10,7 +10,7 @@ import numpy as np
 
 from ..models.torch.policies import WrapperBoundDeterministicPolicy
 from ..models.torch.q_functions.ensemble_q_function import WrapperBoundEnsembleContinuousQFunction
-from .attackers import critic_normal_attack, actor_mad_attack, random_attack
+
 
 ENV_OBS_RANGE = {
     'walker2d-v0': dict(
