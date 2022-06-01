@@ -1,11 +1,16 @@
 import os
 import json
 import time
+from tqdm import tqdm
 
 import torch
 
 import numpy as np
 
+
+from d3rlpy.models.torch.policies import WrapperBoundDeterministicPolicy
+from d3rlpy.models.torch.q_functions.ensemble_q_function import WrapperBoundEnsembleContinuousQFunction
+from d3rlpy.adversarial_training.attackers import critic_normal_attack, actor_mad_attack, random_attack
 
 ENV_OBS_RANGE = {
     'walker2d-v0': dict(
@@ -93,6 +98,193 @@ def clamp(x, vec_min, vec_max):
     x = torch.max(x, vec_min)
     x = torch.min(x, vec_max)
     return x
+
+
+def make_checkpoint_list(main_args):
+    if os.path.isfile(main_args.ckpt):
+        assert main_args.n_seeds_want_to_test == 1
+        ckpt_list = [main_args.ckpt]
+    elif os.path.isdir(main_args.ckpt):
+        entries = os.listdir(main_args.ckpt)
+        entries.sort()
+        ckpt_list = []
+        for entry in entries:
+            ckpt_file = os.path.join(main_args.ckpt, entry, main_args.ckpt_steps)
+            assert os.path.isfile(ckpt_file), \
+                "Cannot file checkpoint {} in {}".format(main_args.ckpt_steps, ckpt_file)
+            ckpt_list.append(ckpt_file)
+    else:
+        print("Path doesn't exist: ", main_args.ckpt)
+        raise ValueError
+
+    return ckpt_list
+
+
+def make_bound_for_network(algo):
+    # For convex relaxation: This is tested for TD3, not guarantee to work with other algorithms
+    algo._impl._q_func = WrapperBoundEnsembleContinuousQFunction(
+        q_func=algo._impl._q_func,
+        observation_shape=algo.observation_shape[0],
+        action_shape=algo.action_size,
+        device=algo._impl.device
+    )
+    algo._impl._targ_q_func = WrapperBoundEnsembleContinuousQFunction(
+        q_func=algo._impl._targ_q_func,
+        observation_shape=algo.observation_shape[0],
+        action_shape=algo.action_size,
+        device=algo._impl.device
+    )
+
+    algo._impl._policy = WrapperBoundDeterministicPolicy(
+        policy=algo._impl._policy,
+        observation_shape=algo.observation_shape[0],
+        device=algo._impl.device
+    )
+    algo._impl._targ_policy = WrapperBoundDeterministicPolicy(
+        policy=algo._impl._targ_policy,
+        observation_shape=algo.observation_shape[0],
+        device=algo._impl.device
+    )
+
+    return algo
+
+
+"""
+##### Functions used to evaluate
+"""
+def eval_clean_env(params):
+    rank, algo, env, start_seed, params = params
+    n_trials = params.n_eval_episodes
+
+    episode_rewards = []
+    for i in tqdm(range(n_trials), disable=(rank != 0)):
+        if start_seed is None:
+            env.seed(i)
+        else:
+            env.seed(start_seed + i)
+        state = env.reset()
+        episode_reward = 0.0
+
+        while True:
+            # take action
+            action = algo.predict([state])[0]
+
+            state, reward, done, _ = env.step(action)
+            episode_reward += reward
+
+            if done:
+                break
+        episode_rewards.append(episode_reward)
+
+    unorm_score = float(np.mean(episode_rewards))
+    return unorm_score
+
+
+def eval_env_under_attack(params):
+    rank, algo, env, start_seed, params = params
+    n_trials = params.n_eval_episodes
+
+    # Set seed
+    torch.manual_seed(params.seed)
+    np.random.seed(params.seed)
+
+    attack_type = params.attack_type
+    attack_epsilon = params.attack_epsilon
+    if attack_type in ['critic_normal']:
+        attack_iteration = 5
+    elif attack_type in ['actor_mad']:
+        attack_iteration = 5
+    else:
+        attack_iteration = 1
+    attack_stepsize = attack_epsilon / attack_iteration
+    if rank == 0:
+        print("[INFO] Using %s attack: eps=%f, n_iters=%d, sz=%f" %
+              (params.attack_type.upper(), attack_epsilon, attack_iteration, attack_stepsize))
+
+    def attack(state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None):
+        if type in ['random']:
+            ori_state_tensor = tensor(state, algo._impl.device)
+            perturb_state = random_attack(
+                ori_state_tensor, attack_epsilon,
+                algo._impl._obs_min, algo._impl._obs_max,
+                algo.scaler
+            )
+            perturb_state = perturb_state.cpu().numpy()
+
+        elif type in ['critic_normal']:
+            ori_state_tensor = tensor(state, algo._impl.device)         # original, unnormalized
+            perturb_state = critic_normal_attack(
+                ori_state_tensor, algo._impl._policy, algo._impl._q_func,
+                attack_epsilon, attack_iteration, attack_stepsize,
+                algo._impl._obs_min, algo._impl._obs_max,
+                algo.scaler
+            )
+            perturb_state = perturb_state.cpu().numpy()
+
+        elif type in ['actor_mad']:
+            ori_state_tensor = tensor(state, algo._impl.device)         # original, unnormalized
+            perturb_state = actor_mad_attack(
+                ori_state_tensor, algo._impl._policy, algo._impl._q_func,
+                attack_epsilon, attack_iteration, attack_stepsize,
+                algo._impl._obs_min, algo._impl._obs_max,
+                algo.scaler
+            )
+            perturb_state = perturb_state.cpu().numpy()
+
+        else:
+            raise NotImplementedError
+        return perturb_state.squeeze()
+
+    episode_rewards = []
+    for i in tqdm(range(n_trials), disable=(rank != 0)):
+        if start_seed is None:
+            env.seed(i)
+        else:
+            env.seed(start_seed + i)
+        state = env.reset()
+
+        state = attack(state, attack_type, attack_epsilon, attack_iteration, attack_stepsize)
+        episode_reward = 0.0
+
+        while True:
+            # take action
+            action = algo.predict([state])[0]
+
+            state, reward, done, _ = env.step(action)
+            state = attack(state, attack_type, attack_epsilon, attack_iteration, attack_stepsize)
+            episode_reward += reward
+
+            if done:
+                break
+        episode_rewards.append(episode_reward)
+
+    unorm_score = float(np.mean(episode_rewards))
+    return unorm_score
+
+
+# def train_sarsa(algo, env, buffer=None, n_sarsa_steps=1000, n_warmups=1000):
+#
+#     logdir_sarsa = os.path.join(args.ckpt[:args.ckpt.rfind('/')], 'sarsa_model')
+#     model_path = os.path.join(logdir_sarsa, 'sarsa_ntrains{}_warmup{}.pt'.format(n_sarsa_steps, n_warmups))
+#
+#
+#     algo = make_bound_for_network(algo)
+#
+#     # We need to re-initialize the critic, not using the old one (following SA-DDPG)
+#     algo._impl._q_func.reset_weight()
+#     algo._impl._targ_q_func.reset_weight()
+#
+#     if not os.path.exists(logdir_sarsa):
+#         os.mkdir(logdir_sarsa)
+#     if os.path.exists(model_path):
+#         print('Found pretrained SARSA: ', model_path)
+#         algo.load_model(model_path)
+#     else:
+#         print('Not found pretrained SARSA: ', model_path)
+#         algo.fit_sarsa(env, buffer, n_sarsa_steps, n_warmups)
+#         algo.save_model(model_path)
+#
+#     return algo
 
 
 class EvalLogger():
