@@ -101,23 +101,24 @@ def clamp(x, vec_min, vec_max):
     return x
 
 
-def make_checkpoint_list(main_args):
-    if os.path.isfile(main_args.ckpt):
-        assert main_args.n_seeds_want_to_test == 1
-        ckpt_list = [main_args.ckpt]
-    elif os.path.isdir(main_args.ckpt):
-        entries = os.listdir(main_args.ckpt)
+def make_checkpoint_list(ckpt_path, n_seeds_want_to_test, ckpt_steps):
+    if os.path.isfile(ckpt_path):
+        assert n_seeds_want_to_test == 1
+        ckpt_list = [ckpt_path]
+        print("\tEvaluating with single checkpoint.")
+    elif os.path.isdir(ckpt_path):
+        entries = os.listdir(ckpt_path)
         entries.sort()
-        print('Found {} experiments.'.format(len(entries)))
+        print("\tFound %d experiments." % (len(entries)))
         ckpt_list = []
         for entry in entries:
-            ckpt_file = os.path.join(main_args.ckpt, entry, main_args.ckpt_steps)
+            ckpt_file = os.path.join(ckpt_path, entry, ckpt_steps)
             assert os.path.isfile(ckpt_file), \
-                "Cannot file checkpoint {} in {}".format(main_args.ckpt_steps, ckpt_file)
+                "\tCannot find checkpoint {} in {}".format(ckpt_steps, ckpt_file)
             ckpt_list.append(ckpt_file)
-        print('Found {} checkpoints.'.format(len(ckpt_list)))
+        print('\tFound {} checkpoints.'.format(len(ckpt_list)))
     else:
-        print("Path doesn't exist: ", main_args.ckpt)
+        print("\tPath doesn't exist: ", ckpt_path)
         raise ValueError
 
     return ckpt_list
