@@ -2,6 +2,7 @@ import os
 import json
 import time
 from tqdm import tqdm
+from d4rl import infos
 
 import torch
 
@@ -174,7 +175,15 @@ class EvalLogger():
         if 'env_name' in exp_params.keys():
             self.env_name = exp_params['env_name']
         else:
-            self.env_name = 'unknown'
+            self.env_name = None
+            # Attempt to get name of env from checkpoint's path
+            _ckpt_paths = args.ckpt.split('/')
+            for _ckpt in _ckpt_paths:
+                if _ckpt in list(infos.DATASET_URLS.keys()):
+                    self.env_name = _ckpt
+            # If still cannot find name of env
+            if self.env_name is None:
+                self.env_name = 'unknown'
 
         self.filename = "eval_" + ENV_NAME_MAPPING[self.env_name] + '_' + self.exp_name + '_' + timestamp + '.txt'
         self.logfile = os.path.join(args.eval_logdir, self.filename)
