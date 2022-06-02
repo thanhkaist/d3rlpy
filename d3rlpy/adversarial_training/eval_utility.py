@@ -98,7 +98,7 @@ def eval_env_under_attack(params):
             env.seed(start_seed + i)
         state = env.reset()
 
-        state = attack(state, attack_type, attack_epsilon, attack_iteration, attack_stepsize)
+        state = attack(state, attack_type, attack_epsilon, params.attack_iteration, attack_stepsize)
         episode_reward = 0.0
 
         while True:
@@ -106,7 +106,7 @@ def eval_env_under_attack(params):
             action = algo.predict([state])[0]
 
             state, reward, done, _ = env.step(action)
-            state = attack(state, attack_type, attack_epsilon, attack_iteration, attack_stepsize)
+            state = attack(state, attack_type, attack_epsilon, params.attack_iteration, attack_stepsize)
             episode_reward += reward
 
             if done:
