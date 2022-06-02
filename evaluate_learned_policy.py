@@ -14,7 +14,11 @@ import os
 
 
 from d3rlpy.adversarial_training.utility import make_checkpoint_list, EvalLogger
-from d3rlpy.adversarial_training.eval_utility import eval_clean_env, eval_env_under_attack
+from d3rlpy.adversarial_training.eval_utility import (
+    eval_clean_env,
+    eval_env_under_attack,
+    eval_multiprocess_wrapper
+)
 
 
 parser = argparse.ArgumentParser()
@@ -45,94 +49,75 @@ parser.add_argument('--eval_logdir', type=str, default='eval_results')
 args = parser.parse_args()
 
 
-def eval_multiprocess_wrapper(algo, func, env_list, params):
-    n_trials_per_each = int(params.n_eval_episodes / params.n_processes)
-    n_trials_for_last = n_trials_per_each if params.n_eval_episodes % params.n_processes == 0 else \
-        n_trials_per_each + params.n_eval_episodes % params.n_processes
-
-    args_list = []
-    for i in range(params.n_processes):
-        params_tmp = copy.deepcopy(params)
-
-        if i == params_tmp.n_processes - 1:  # last iteration
-            params_tmp.n_eval_episodes = n_trials_for_last
-        else:
-            params_tmp.n_eval_episodes = n_trials_per_each
-
-        start_seed = n_trials_per_each * i + 1
-        args_list.append((i, algo, env_list[i], start_seed, params_tmp))
-
-    with mp.Pool(params.n_processes) as pool:
-        unorm_score = pool.map(func, args_list)
-        unorm_score = np.mean(unorm_score)
-
-    return unorm_score
+"""" Pre-defined constant for evaluation """
+ATTACK_ITERATION=dict(
+    random=1,
+    critic_normal=5,
+    actor_mad=5
+)
 
 
-def eval_func(algo, writer, env, attack_type, attack_epsilon, disable_clean):
-    args_clone = copy.deepcopy(args)
-    args_clone.attack_type = attack_type
-    args_clone.attack_epsilon = attack_epsilon
-    args_clone.disable_clean = disable_clean
+def eval_func(algo, env, writer, attack_type, attack_epsilon, params):
+    multiprocessing = params.mp
+    _args = copy.deepcopy(params)
+    _args.attack_type = attack_type
+    _args.attack_epsilon = attack_epsilon
 
-    if attack_type in ['critic_normal']:
-        args_clone.attack_iteration = 5
-    elif attack_type in ['actor_mad']:
-        args_clone.attack_iteration = 5
-    else:
-        args_clone.attack_iteration = 1
+    _args.attack_iteration = ATTACK_ITERATION[attack_type]
 
-    unorm_score, norm_score, unorm_score_noise, norm_score_noise = None, None, None, None
-    if not args_clone.mp:
-        print('[INFO] Normally evaluating...')
-        func_args = (0, algo, env, args_clone.seed, args_clone)  # algo, env, start_seed, args
-
-        if not args_clone.disable_clean:
-            unorm_score = eval_clean_env(func_args)
-        unorm_score_noise = eval_env_under_attack(func_args)
-
-    else:
-        print('[INFO] Multiple-processing evaluating...')
-        # start = time.time()
+    unorm_score, norm_score, unorm_score_attack, norm_score_attack = None, None, None, None
+    if multiprocessing:
+        print("[INFO] Multiple-processing evaluating...")
         env_list = []
         env_list.append(env)
-        for i in range(args_clone.n_processes - 1):
-            _env = gym.make(args_clone.dataset)
-            _env.seed(args_clone.seed)
+        for i in range(_args.n_processes - 1):
+            _env = gym.make(_args.dataset)
+            _env.seed(_args.seed)
             env_list.append(_env)
-        if not args_clone.disable_clean:
-            unorm_score = eval_multiprocess_wrapper(algo, eval_clean_env, env_list, args_clone)
-        unorm_score_noise = eval_multiprocess_wrapper(algo, eval_env_under_attack, env_list, args_clone)
+        if not _args.disable_clean:
+            unorm_score = eval_multiprocess_wrapper(algo, eval_clean_env, env_list, _args)
+        unorm_score_attack = eval_multiprocess_wrapper(algo, eval_env_under_attack, env_list, _args)
 
         del env_list
 
-    if not args_clone.disable_clean:
+    else:
+        print("[INFO] Normally evaluating...")
+        func_args = (0, algo, env, _args.seed, _args)  # algo, env, start_seed, args
+
+        if not _args.disable_clean:
+            unorm_score = eval_clean_env(func_args)
+        unorm_score_attack = eval_env_under_attack(func_args)
+
+
+    if not _args.disable_clean:
         norm_score = env.env.wrapped_env.get_normalized_score(unorm_score) * 100
         writer.log(attack_type="clean", attack_epsilon=attack_epsilon,
-                   attack_iteration=args_clone.attack_iteration,
+                   attack_iteration=_args.attack_iteration,
                    unorm_score=unorm_score, norm_score=norm_score)
-    norm_score_noise = env.env.wrapped_env.get_normalized_score(unorm_score_noise) * 100
+    norm_score_attack = env.env.wrapped_env.get_normalized_score(unorm_score_attack) * 100
 
     writer.log(attack_type=attack_type, attack_epsilon=attack_epsilon,
-               attack_iteration=args_clone.attack_iteration,
-               unorm_score=unorm_score_noise, norm_score=norm_score_noise)
+               attack_iteration=_args.attack_iteration,
+               unorm_score=unorm_score_attack, norm_score=norm_score_attack)
 
-    print("***** Env: %s - method: %s *****" % (args_clone.dataset, args_clone.ckpt.split('/')[-3]))
+    print("***** Env: %s - method: %s *****" % (_args.dataset, _args.ckpt.split('/')[-3]))
     if unorm_score is not None:
         print("Clean env: unorm = %.3f, norm = %.2f" % (unorm_score, norm_score))
-    print("Noise env: unorm = %.3f, norm = %.2f" % (unorm_score_noise, norm_score_noise))
+    print("Noise env: unorm = %.3f, norm = %.2f" % (unorm_score_attack, norm_score_attack))
+    return unorm_score, norm_score, unorm_score_attack, norm_score_attack
 
 
 def main(args):
     if not os.path.exists(args.eval_logdir):
         os.makedirs(args.eval_logdir)
 
+    print("[INFO] Logging evalutation into: %s\n" % (args.eval_logdir))
+
+    print("[INFO] Loading dataset: %s\n" % (args.dataset))
     dataset, env = d3rlpy.datasets.get_dataset(args.dataset)
 
     d3rlpy.seed(args.seed)
     env.seed(args.seed)
-
-    _, test_episodes = train_test_split(dataset, test_size=0.2)
 
     ### Initialize algorithm
     td3 = d3rlpy.algos.TD3PlusBC(scaler="standard", use_gpu=args.gpu, env_name=args.dataset)
@@ -144,33 +129,51 @@ def main(args):
         transitions += episode.transitions
     td3._scaler.fit(transitions)  # Compute mean & std of dataset
 
-    ckpt_list = make_checkpoint_list(args)
+
+    list_checkpoints = make_checkpoint_list(args.ckpt, args.n_seeds_want_to_test, args.ckpt_steps)
+
+    print("[INFO] Evaluating %d checkpoint(s)\n" % (args.n_seeds_want_to_test))
+
+    # Initialize writer for first checkpoint, and append next checkpoints
+    writer = EvalLogger(ckpt=list_checkpoints[0], eval_logdir=args.eval_logdir)
 
     # Scan through all checkpoints
-    for checkpoint in ckpt_list[:args.n_seeds_want_to_test]:
-        args.ckpt = checkpoint
-        print('Evaluating: ', args.ckpt)
-        writer = EvalLogger(args)
+    norm_scores = np.zeros((len(args.attack_type), 1, args.n_seeds_want_to_test))
 
+    # Structure: NxRxC = N attack's types x R epsilon values x C seeds
+    N = len(args.attack_type)
+    R = len(args.attack_epsilon_list)
+    C = args.n_seeds_want_to_test
+    norm_score_attacks = np.zeros((N, R, C))
+
+    for c, checkpoint in enumerate(list_checkpoints[:args.n_seeds_want_to_test]):
+        print("==> Evaluate checkpoint: %s" % (checkpoint))
         td3.load_model(checkpoint)
-
-        # if args.attack_type.startswith('sarsa'):
-        #     td3 = train_sarsa(td3, env)
-
         start = time.time()
+        for n, attack_type in enumerate(args.attack_type_list):
+            for r, attack_epsilon in enumerate(args.attack_epsilon_list):
+                args.disable_clean = not (r == 0)   # Only do clean test for first epsilon
+                _, _norm_score, _, _norm_score_attack = \
+                    eval_func(td3, env, writer, attack_type, attack_epsilon, args)
 
-        for attack_type in args.attack_type_list:
-            for i, attack_epsilon in enumerate(args.attack_epsilon_list):
-                if i == 0:
-                    disable_clean = args.disable_clean
-                else:
-                    disable_clean = True
+                if not args.disable_clean:
+                    norm_scores[n, r, c] = _norm_score
+                norm_score_attacks[n, r, c] = _norm_score_attack
+        print("<== Evaluation time for 1 seed: %.3f\n" % (time.time() - start))
 
-                eval_func(td3, writer, env, attack_type, attack_epsilon, disable_clean)
 
-        writer.close()
-        print("=> Time(s) for evaluation (1 seed): %.3f" % (time.time() - start))
-
+    writer.print("====================== Summary ======================\n")
+    writer.print("Average clean: mean=%.2f, std=%.2f, median=%.2f (%d seeds)\n" %
+                 (np.mean(norm_scores, axis=2).squeeze(), np.mean(norm_scores, axis=2).squeeze(),
+                  np.median(norm_scores, axis=2).squeeze(), len(list_checkpoints)))
+    for n in range(N):
+        for r in range(R):
+            writer.print("Average attack: %15s-eps=%.4f: mean=%.2f, std=%.2f, median=%.2f (%d seeds)\n" %
+                         (args.attack_type_list[n], args.attack_epsilon_list[r],
+                          np.mean(norm_score_attacks, axis=2).squeeze(),
+                          np.mean(norm_score_attacks, axis=2).squeeze(),
+                          np.median(norm_score_attacks, axis=2).squeeze(), len(list_checkpoints)))
+    writer.close()
 
 if __name__ == '__main__':
     if args.mp:

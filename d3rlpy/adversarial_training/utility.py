@@ -117,6 +117,8 @@ def make_checkpoint_list(ckpt_path, n_seeds_want_to_test, ckpt_steps):
                 "\tCannot find checkpoint {} in {}".format(ckpt_steps, ckpt_file)
             ckpt_list.append(ckpt_file)
         print('\tFound {} checkpoints.'.format(len(ckpt_list)))
+        if len(ckpt_list) < n_seeds_want_to_test:
+            print("\tWARNING: Number of found checkpoints less than requirement")
     else:
         print("\tPath doesn't exist: ", ckpt_path)
         raise ValueError
@@ -154,23 +156,34 @@ def make_bound_for_network(algo):
 
 
 class EvalLogger():
-    def __init__(self, args):
+    def __init__(self, ckpt, eval_logdir):
 
         # Extract required information
-        checkpoint_step = args.ckpt.split('/')[-1]
-        exp_path = args.ckpt.replace(checkpoint_step, '')
+        assert os.path.isfile(ckpt)
+
+        self.init_info_from_ckpt(ckpt)
+
+        # Construct new writer
+        timestamp = time.localtime()
+        timestamp = time.strftime("%m_%d-%H_%M_%S", timestamp)
+        self.filename = "eval_" + ENV_NAME_MAPPING[self.env_name] + '_' + self.exp_name + '_' + timestamp + '.txt'
+        self.logfile = os.path.join(eval_logdir, self.filename)
+        self.writer = open(self.logfile, "w")
+
+        self.write_header()
+
+    def init_info_from_ckpt(self, ckpt):
+        checkpoint_step = ckpt.split('/')[-1]
+        exp_path = ckpt.replace(checkpoint_step, '')
 
         f = open(os.path.join(exp_path, "params.json"))
         exp_params = json.load(f)
 
-        timestamp = time.localtime()
-        timestamp = time.strftime("%m_%d-%H_%M_%S", timestamp)
-
-        self.ckpt = args.ckpt
+        self.ckpt = ckpt
         self.exp_params = exp_params
 
-        self.exp_name = args.ckpt.split('/')[-3]
-        self.exp_name_with_seed = args.ckpt.split('/')[-2]
+        self.exp_name = ckpt.split('/')[-3]
+        self.exp_name_with_seed = ckpt.split('/')[-2]
         self.checkpoint_step = checkpoint_step
 
         if 'env_name' in exp_params.keys():
@@ -178,7 +191,7 @@ class EvalLogger():
         else:
             self.env_name = None
             # Attempt to get name of env from checkpoint's path
-            _ckpt_paths = args.ckpt.split('/')
+            _ckpt_paths = ckpt.split('/')
             for _ckpt in _ckpt_paths:
                 if _ckpt in list(infos.DATASET_URLS.keys()):
                     self.env_name = _ckpt
@@ -186,14 +199,8 @@ class EvalLogger():
             if self.env_name is None:
                 self.env_name = 'unknown'
 
-        self.filename = "eval_" + ENV_NAME_MAPPING[self.env_name] + '_' + self.exp_name + '_' + timestamp + '.txt'
-        self.logfile = os.path.join(args.eval_logdir, self.filename)
-
-        self.writer = open(self.logfile, "w")
-        self.write_header()
-
     def write_header(self):
-        self.writer.write("********* ATTACK EVALUATION *********\n\n")
+        self.writer.write("\n\n********* ATTACK EVALUATION *********\n\n")
 
         self.writer.write("Environment: %s\n" % (self.env_name))
         self.writer.write("Experiment name: %s\n" % (self.exp_name))
@@ -223,6 +230,13 @@ class EvalLogger():
                               % (attack_type.upper(), attack_epsilon, attack_iteration,
                                  unorm_score, norm_score)
                               )
+    def print(self, text):
+        print(text)
+        self.writer.write(text)
+
+    def append_to_previous_writer(self, ckpt):
+        self.init_info_from_ckpt(ckpt)
+        self.write_header()
 
     def close(self):
         self.writer.close()

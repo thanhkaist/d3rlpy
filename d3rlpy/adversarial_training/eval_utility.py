@@ -1,9 +1,11 @@
 import os
 import json
 import time
+import copy
 from tqdm import tqdm
 
 import torch
+from torch import multiprocessing as mp
 
 import numpy as np
 from .utility import tensor
@@ -114,6 +116,30 @@ def eval_env_under_attack(params):
         episode_rewards.append(episode_reward)
 
     unorm_score = float(np.mean(episode_rewards))
+    return unorm_score
+
+
+def eval_multiprocess_wrapper(algo, func, env_list, params):
+    n_trials_per_each = int(params.n_eval_episodes / params.n_processes)
+    n_trials_for_last = n_trials_per_each if params.n_eval_episodes % params.n_processes == 0 else \
+        n_trials_per_each + params.n_eval_episodes % params.n_processes
+
+    args_list = []
+    for i in range(params.n_processes):
+        params_tmp = copy.deepcopy(params)
+
+        if i == params_tmp.n_processes - 1:  # last iteration
+            params_tmp.n_eval_episodes = n_trials_for_last
+        else:
+            params_tmp.n_eval_episodes = n_trials_per_each
+
+        start_seed = n_trials_per_each * i + 1
+        args_list.append((i, algo, env_list[i], start_seed, params_tmp))
+
+    with mp.Pool(params.n_processes) as pool:
+        unorm_score = pool.map(func, args_list)
+        unorm_score = np.mean(unorm_score)
+
     return unorm_score
 
 
