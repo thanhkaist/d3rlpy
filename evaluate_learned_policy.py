@@ -75,6 +75,13 @@ def eval_func(algo, writer, env, attack_type, attack_epsilon, disable_clean):
     args_clone.attack_epsilon = attack_epsilon
     args_clone.disable_clean = disable_clean
 
+    if attack_type in ['critic_normal']:
+        args_clone.attack_iteration = 5
+    elif attack_type in ['actor_mad']:
+        args_clone.attack_iteration = 5
+    else:
+        args_clone.attack_iteration = 1
+
     unorm_score, norm_score, unorm_score_noise, norm_score_noise = None, None, None, None
     if not args_clone.mp:
         print('[INFO] Normally evaluating...')

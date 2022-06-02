@@ -51,16 +51,10 @@ def eval_env_under_attack(params):
 
     attack_type = params.attack_type
     attack_epsilon = params.attack_epsilon
-    if attack_type in ['critic_normal']:
-        attack_iteration = 5
-    elif attack_type in ['actor_mad']:
-        attack_iteration = 5
-    else:
-        attack_iteration = 1
-    attack_stepsize = attack_epsilon / attack_iteration
+    attack_stepsize = attack_epsilon / params.attack_iteration
     if rank == 0:
         print("[INFO] Using %s attack: eps=%f, n_iters=%d, sz=%f" %
-              (params.attack_type.upper(), attack_epsilon, attack_iteration, attack_stepsize))
+              (params.attack_type.upper(), attack_epsilon, params.attack_iteration, attack_stepsize))
 
     def attack(state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None):
         if type in ['random']:
