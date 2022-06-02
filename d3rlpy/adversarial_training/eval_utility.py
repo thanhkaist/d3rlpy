@@ -93,7 +93,7 @@ def eval_env_under_attack(params):
         return perturb_state.squeeze()
 
     episode_rewards = []
-    for i in tqdm(range(n_trials), disable=(rank != 0)):
+    for i in tqdm(range(n_trials), disable=(rank != 0), desc="{} attack".format(attack_type.upper())):
         if start_seed is None:
             env.seed(i)
         else:

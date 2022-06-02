@@ -102,6 +102,7 @@ def clamp(x, vec_min, vec_max):
 
 
 def make_checkpoint_list(ckpt_path, n_seeds_want_to_test, ckpt_steps):
+    print("[INFO] Finding checkpoints...")
     if os.path.isfile(ckpt_path):
         assert n_seeds_want_to_test == 1
         ckpt_list = [ckpt_path]
