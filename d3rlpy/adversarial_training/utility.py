@@ -157,7 +157,7 @@ def make_bound_for_network(algo):
 
 
 class EvalLogger():
-    def __init__(self, ckpt, eval_logdir):
+    def __init__(self, ckpt, eval_logdir, prefix="eval"):
 
         # Extract required information
         assert os.path.isfile(ckpt)
@@ -167,7 +167,8 @@ class EvalLogger():
         # Construct new writer
         timestamp = time.localtime()
         timestamp = time.strftime("%m_%d-%H_%M_%S", timestamp)
-        self.filename = "eval_" + ENV_NAME_MAPPING[self.env_name] + '_' + self.exp_name + '_' + timestamp + '.txt'
+        self.filename = prefix + '_' +  ENV_NAME_MAPPING[self.env_name] + \
+                        '_' + self.exp_name + '_' + timestamp + '.txt'
         self.logfile = os.path.join(eval_logdir, self.filename)
         self.writer = open(self.logfile, "w")
 
