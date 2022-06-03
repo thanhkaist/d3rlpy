@@ -1,20 +1,18 @@
 import argparse
-
-import pandas as pd
-
-import d3rlpy
-
-from torch import multiprocessing as mp
-
-import numpy as np
-
 import gym
 import time
 import copy
 import os
 
+import d3rlpy
 
-from d3rlpy.adversarial_training.utility import make_checkpoint_list, EvalLogger
+from torch import multiprocessing as mp
+
+import pandas as pd
+import numpy as np
+
+
+from d3rlpy.adversarial_training.utility import make_checkpoint_list, copy_file, EvalLogger
 from d3rlpy.adversarial_training.eval_utility import (
     eval_clean_env,
     eval_env_under_attack,
@@ -194,12 +192,18 @@ def main(args):
                 np.median(norm_score_attacks, axis=2)[n, r],
                 n_seeds
             ]]
-            index = ["Attack: %15s [eps=%.4f]" % (args.attack_type_list[n], args.attack_epsilon_list[r])]
+            index = ["%15s-[eps=%.4f]" % (args.attack_type_list[n], args.attack_epsilon_list[r])]
             _summary = pd.DataFrame(data, columns=columns, index=index)
             summary = summary.append(_summary)
 
     writer.close()
-    summary.to_pickle(os.path.join(args.eval_logdir, writer.filename[:-3] + 'pkl'))
+    pickle_filename = writer.logfile[:-3] + 'pkl'
+    summary.to_pickle(pickle_filename)
+
+    # Always maintain latest files
+    copy_file(src=writer.logfile, des=writer.logfile[:-18] + 'latest.txt')
+    copy_file(src=pickle_filename, des=pickle_filename[:-18] + 'latest.pkl')
+
 
 
 if __name__ == '__main__':

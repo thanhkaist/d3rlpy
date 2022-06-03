@@ -1,7 +1,7 @@
 import os
 import json
 import time
-from tqdm import tqdm
+import shutil
 from d4rl import infos
 
 import torch
@@ -101,6 +101,24 @@ def clamp(x, vec_min, vec_max):
     return x
 
 
+def copy_file(src, des):
+    try:
+        shutil.copy(src, des)
+        print("File copied successfully.")
+
+    # If source and destination are same
+    except shutil.SameFileError:
+        print("Source and destination represents the same file.")
+
+    # If there is any permission issue
+    except PermissionError:
+        print("Permission denied.")
+
+    # For other errors
+    except:
+        print("Error occurred while copying file.")
+
+
 def make_checkpoint_list(ckpt_path, n_seeds_want_to_test, ckpt_steps):
     print("[INFO] Finding checkpoints...")
     if os.path.isfile(ckpt_path):
@@ -125,6 +143,21 @@ def make_checkpoint_list(ckpt_path, n_seeds_want_to_test, ckpt_steps):
         raise ValueError
 
     return ckpt_list
+
+
+def count_num_seeds_in_path(ckpt_path, ckpt_steps):
+    assert os.path.isdir(ckpt_path)
+    entries = os.listdir(ckpt_path)
+    entries.sort()
+    ckpt_list = []
+    for entry in entries:
+        ckpt_file = os.path.join(ckpt_path, entry, ckpt_steps)
+        if not os.path.isfile(ckpt_file):
+            print("[WARNING] Cannot find checkpoint {} in {}".format(ckpt_steps, ckpt_file))
+        else:
+            ckpt_list.append(ckpt_file)
+
+    return len(ckpt_list)
 
 
 def make_bound_for_network(algo):
