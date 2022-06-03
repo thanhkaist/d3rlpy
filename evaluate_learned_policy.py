@@ -1,13 +1,14 @@
 import argparse
+
+import pandas as pd
+
 import d3rlpy
-from sklearn.model_selection import train_test_split
 
 from torch import multiprocessing as mp
 
 import numpy as np
 
 import gym
-from tqdm import tqdm
 import time
 import copy
 import os
@@ -25,7 +26,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--dataset', type=str, default='hopper-medium-v0')
 parser.add_argument('--seed', type=int, default=1)
 parser.add_argument('--gpu', type=int)
-parser.add_argument('--n_eval_episodes', type=int, default=100)
+parser.add_argument('--n_eval_episodes', type=int, default=50)
 
 SUPPORTED_TRANSFORMS = ['random', 'adversarial_training']
 parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
@@ -111,7 +112,7 @@ def main(args):
     if not os.path.exists(args.eval_logdir):
         os.makedirs(args.eval_logdir)
 
-    print("[INFO] Logging evalutation into: %s\n" % (args.eval_logdir))
+    print("[INFO] Logging evalutation into: %s" % (args.eval_logdir))
 
     print("[INFO] Loading dataset: %s\n" % (args.dataset))
     dataset, env = d3rlpy.datasets.get_dataset(args.dataset)
@@ -135,45 +136,71 @@ def main(args):
     print("[INFO] Evaluating %d checkpoint(s)\n" % (args.n_seeds_want_to_test))
 
     # Initialize writer for first checkpoint, and append next checkpoints
-    writer = EvalLogger(ckpt=list_checkpoints[0], eval_logdir=args.eval_logdir)
-
-    # Scan through all checkpoints
-    norm_scores = np.zeros((len(args.attack_type), 1, args.n_seeds_want_to_test))
+    writer = EvalLogger(ckpt=list_checkpoints[0], eval_logdir=args.eval_logdir,
+                        prefix='eval_v1')
 
     # Structure: NxRxC = N attack's types x R epsilon values x C seeds
-    N = len(args.attack_type)
+    N = len(args.attack_type_list)
     R = len(args.attack_epsilon_list)
     C = args.n_seeds_want_to_test
+
+    norm_scores = np.zeros((1, 1, C))
     norm_score_attacks = np.zeros((N, R, C))
 
-    for c, checkpoint in enumerate(list_checkpoints[:args.n_seeds_want_to_test]):
-        print("==> Evaluate checkpoint: %s" % (checkpoint))
+    # Scan through all checkpoints
+    n_seeds = args.n_seeds_want_to_test if \
+        len(list_checkpoints) > args.n_seeds_want_to_test else len(list_checkpoints)
+    for c, checkpoint in enumerate(list_checkpoints[:n_seeds]):
+        if c > 0:
+            writer.init_info_from_ckpt(checkpoint)
+            writer.write_header()
+
         td3.load_model(checkpoint)
+        args.ckpt = checkpoint
+        print("===> Eval checkpoint: %s" % (checkpoint))
         start = time.time()
         for n, attack_type in enumerate(args.attack_type_list):
             for r, attack_epsilon in enumerate(args.attack_epsilon_list):
-                args.disable_clean = not (r == 0)   # Only do clean test for first epsilon
+                args.disable_clean = not (r == 0) or not (n == 0)
                 _, _norm_score, _, _norm_score_attack = \
                     eval_func(td3, env, writer, attack_type, attack_epsilon, args)
 
                 if not args.disable_clean:
                     norm_scores[n, r, c] = _norm_score
                 norm_score_attacks[n, r, c] = _norm_score_attack
-        print("<== Evaluation time for 1 seed: %.3f\n" % (time.time() - start))
+        print("\n<=== Evaluation time for 1 seed: %.3f (s)\n" % (time.time() - start))
 
 
-    writer.print("====================== Summary ======================\n")
+    writer.print("\n\n====================== Summary ======================\n")
     writer.print("Average clean: mean=%.2f, std=%.2f, median=%.2f (%d seeds)\n" %
-                 (np.mean(norm_scores, axis=2).squeeze(), np.mean(norm_scores, axis=2).squeeze(),
-                  np.median(norm_scores, axis=2).squeeze(), len(list_checkpoints)))
+                 (np.mean(norm_scores, axis=2).squeeze(), np.std(norm_scores, axis=2).squeeze(),
+                  np.median(norm_scores, axis=2).squeeze(), n_seeds))
+
+    columns = ["mean", "std", "median", "n_seeds"]
+    data = [[np.mean(norm_scores, axis=2).squeeze(), np.std(norm_scores, axis=2).squeeze(),
+             np.median(norm_scores, axis=2).squeeze(), n_seeds]]
+    summary = pd.DataFrame(data, columns=columns, index=["clean"])
     for n in range(N):
         for r in range(R):
-            writer.print("Average attack: %15s-eps=%.4f: mean=%.2f, std=%.2f, median=%.2f (%d seeds)\n" %
+            writer.print("Attack: %15s [eps=%.4f]: mean=%.2f, std=%.2f, median=%.2f (%d seeds)\n" %
                          (args.attack_type_list[n], args.attack_epsilon_list[r],
-                          np.mean(norm_score_attacks, axis=2).squeeze(),
-                          np.mean(norm_score_attacks, axis=2).squeeze(),
-                          np.median(norm_score_attacks, axis=2).squeeze(), len(list_checkpoints)))
+                          np.mean(norm_score_attacks, axis=2)[n, r],
+                          np.std(norm_score_attacks, axis=2)[n, r],
+                          np.median(norm_score_attacks, axis=2)[n, r],
+                          n_seeds))
+            data = [[
+                np.mean(norm_score_attacks, axis=2)[n, r],
+                np.std(norm_score_attacks, axis=2)[n, r],
+                np.median(norm_score_attacks, axis=2)[n, r],
+                n_seeds
+            ]]
+            index = ["Attack: %15s [eps=%.4f]" % (args.attack_type_list[n], args.attack_epsilon_list[r])]
+            _summary = pd.DataFrame(data, columns=columns, index=index)
+            summary = summary.append(_summary)
+
     writer.close()
+    summary.to_pickle(os.path.join(args.eval_logdir, writer.filename[:-3] + 'pkl'))
+
 
 if __name__ == '__main__':
     if args.mp:
