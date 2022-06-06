@@ -37,19 +37,19 @@ def main():
 
     SUPPORTED_TRANSFORMS = ['random', 'adversarial_training']
     SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad']
-    SUPPORTED_ROBUSTS = ['actor_mad', 'critic_reg', 'critic_drq', 'actor_on_adv']
+    SUPPORTED_ROBUSTS = ['actor_mad', 'critic_reg', 'critic_drq', 'actor_on_adv', 'critic_on_adv']
 
     parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
     parser.add_argument('--attack_type', type=str, default='critic_normal', choices=SUPPORTED_ATTACKS)
     parser.add_argument('--robust_type', type=str, default='actor_mad', choices=SUPPORTED_ROBUSTS, nargs='+')
 
-    parser.add_argument('--epsilon', type=float, default=3e-4)
+    parser.add_argument('--epsilon', type=float, default=0.05)
     parser.add_argument('--num_steps', type=int, default=5)
-    parser.add_argument('--step_size', type=float, default=2.5e-5)
+    parser.add_argument('--step_size', type=float, default=0.01)
 
     parser.add_argument('--critic_reg_coef', type=float, default=0.1)
     parser.add_argument('--actor_reg_coef', type=float, default=0.1)
-    parser.add_argument('--prob_of_actor_on_adv', type=float, default=0.5)
+    parser.add_argument('--prob_of_actor_on_adv', type=float, default=0)
 
     parser.add_argument('--finetune', action='store_true')
     parser.add_argument('--ckpt', type=str, default='.')
