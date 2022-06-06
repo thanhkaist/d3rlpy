@@ -49,7 +49,7 @@ def critic_normal_attack(x, _policy, _q_func, epsilon, num_steps, step_size, _ob
         # adv_x = adv_x_clone + step_size * torch.sign(grad)
         adv_x = adv_x_clone + step_size * grad
 
-        delta = torch.clamp(adv_x - adv_x_clone, min=-epsilon, max=epsilon)
+        delta = torch.clamp(adv_x - ori_state_tensor, min=-epsilon, max=epsilon)
         adv_x = adv_x_clone + delta
 
         # This clamp is performed in ORIGINAL scale
@@ -90,7 +90,7 @@ def actor_mad_attack(x, _policy, _q_func, epsilon, num_steps, step_size, _obs_mi
 
         adv_x = adv_x_clone + step_size * grad
 
-        delta = torch.clamp(adv_x - adv_x_clone, min=-epsilon, max=epsilon)
+        delta = torch.clamp(adv_x - ori_state_tensor, min=-epsilon, max=epsilon)
         adv_x = adv_x_clone + delta         # This is adversarial example
 
         # This clamp is performed in ORIGINAL scale
