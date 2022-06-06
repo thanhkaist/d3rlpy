@@ -132,9 +132,11 @@ def make_checkpoint_list(ckpt_path, n_seeds_want_to_test, ckpt_steps):
         ckpt_list = []
         for entry in entries:
             ckpt_file = os.path.join(ckpt_path, entry, ckpt_steps)
-            assert os.path.isfile(ckpt_file), \
-                "\tCannot find checkpoint {} in {}".format(ckpt_steps, ckpt_file)
-            ckpt_list.append(ckpt_file)
+            if not os.path.isfile(ckpt_file):
+                print("\tCannot find checkpoint {} in {}".format(ckpt_steps, ckpt_file))
+            else:
+                ckpt_list.append(ckpt_file)
+
         print('\tFound {} checkpoints.'.format(len(ckpt_list)))
         if len(ckpt_list) < n_seeds_want_to_test:
             print("\tWARNING: Number of found checkpoints less than requirement")
