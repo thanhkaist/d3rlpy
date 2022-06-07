@@ -215,47 +215,6 @@ class TD3PlusBCAugImpl(TD3Impl):
             extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
                           q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_loss.item())
 
-        elif 'critic_on_adv' in robust_type:
-            batch._observations = self._scaler.reverse_transform(batch._observations)
-            batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
-
-            batch, batch_aug = self.do_augmentation(batch)
-
-            with torch.no_grad():
-                q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
-                q1_pred = q_prediction[0].cpu().detach()
-                q2_pred = q_prediction[1].cpu().detach()
-
-                q_prediction_adv = self._q_func(batch_aug.observations, batch_aug.actions,
-                                                reduction="none")
-                q1_pred_adv_diff = (q_prediction_adv[0].cpu().detach() - q1_pred).numpy().mean()
-                q2_pred_adv_diff = (q_prediction_adv[1].cpu().detach() - q2_pred).numpy().mean()
-                q1_pred = q1_pred.numpy().mean()
-                q2_pred = q2_pred.numpy().mean()
-
-            batch._observations = self._scaler.transform(batch._observations)
-            batch._next_observations = self._scaler.transform(batch._next_observations)
-            batch_aug._observations = self._scaler.transform(batch_aug._observations)
-            batch_aug._next_observations = self._scaler.transform(batch_aug._next_observations)
-
-            self._critic_optim.zero_grad()
-
-            q_tpn = self.compute_target(batch)
-
-            loss = self.compute_critic_loss(batch, q_tpn)
-
-            # batch_aug.actions is equal to batch.actions, we can use either of them in first term
-            critic_reg_loss = ((self._q_func(batch_aug.observations, batch_aug.actions) -
-                                self._q_func(batch.observations, batch.actions).detach()) ** 2).mean()
-
-            loss += critic_reg_coef * critic_reg_loss
-
-            loss.backward()
-            self._critic_optim.step()
-
-            extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
-                          q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_loss.item())
-
         else:
             q1_pred_adv_diff, q2_pred_adv_diff = 0.0, 0.0
             with torch.no_grad():
