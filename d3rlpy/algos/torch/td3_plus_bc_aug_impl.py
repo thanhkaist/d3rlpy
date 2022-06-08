@@ -17,7 +17,12 @@ from ...adversarial_training import (
     clamp,
     ENV_OBS_RANGE,
 )
-from ...adversarial_training.attackers import critic_normal_attack, actor_mad_attack, random_attack
+from ...adversarial_training.attackers import (
+    random_attack,
+    actor_mad_attack,
+    critic_normal_attack,
+    critic_mqd_attack,
+)
 
 
 class TD3PlusBCAugImpl(TD3Impl):
@@ -196,7 +201,7 @@ class TD3PlusBCAugImpl(TD3Impl):
             with torch.no_grad():
                 current_action = self._policy(batch.observations)
                 current_action_adv = self._policy(batch_aug.observations).detach()
-                gt_qval = self._q_func(batch.observations, current_action).detach()
+                gt_qval = self._q_func(batch.observations, current_action, "none").detach()
 
 
             self._critic_optim.zero_grad()
@@ -205,8 +210,9 @@ class TD3PlusBCAugImpl(TD3Impl):
 
             loss = self.compute_critic_loss(batch, q_tpn)
 
-            critic_reg_loss = ((self._q_func(batch.observations, current_action_adv) -
-                               gt_qval) ** 2).mean()
+            qval_adv = self._q_func(batch.observations, current_action_adv, "none")
+            critic_reg_loss = ((qval_adv[0] - gt_qval[0]) ** 2).mean() + \
+                              ((qval_adv[1] - gt_qval[1]) ** 2).mean()
             loss += critic_reg_coef * critic_reg_loss
 
             loss.backward()
@@ -385,6 +391,16 @@ class TD3PlusBCAugImpl(TD3Impl):
                                                 self._obs_min, self._obs_max,
                                                 self._scaler)
                 batch_aug._next_observations = adv_x
+
+            elif attack_type in ['critic_mqd']:
+                adv_x = critic_mqd_attack(batch_aug._observations,
+                                          batch_aug._actions,
+                                          self._policy, self._q_func,
+                                          epsilon, num_steps, step_size,
+                                          self._obs_min, self._obs_max,
+                                          self._scaler)
+                batch_aug._observations = adv_x
+
 
             elif attack_type in ['actor_mad']:
                 adv_x = actor_mad_attack(batch_aug._observations,
