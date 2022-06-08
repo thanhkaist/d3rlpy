@@ -41,6 +41,7 @@ def main():
 
     parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
     parser.add_argument('--attack_type', type=str, default='critic_normal', choices=SUPPORTED_ATTACKS)
+    parser.add_argument('--attack_type_for_actor', type=str, default=None, choices=SUPPORTED_ATTACKS)
     parser.add_argument('--robust_type', type=str, default='actor_mad', choices=SUPPORTED_ROBUSTS, nargs='+')
 
     parser.add_argument('--epsilon', type=float, default=0.05)
@@ -90,6 +91,7 @@ def main():
         num_steps=args.num_steps,
         step_size=args.epsilon / args.num_steps,
         attack_type=args.attack_type,
+        attack_type_for_actor=args.attack_type_for_actor,
         robust_type=args.robust_type,
         critic_reg_coef=args.critic_reg_coef,
         actor_reg_coef=args.actor_reg_coef,

@@ -142,7 +142,7 @@ class TD3PlusBCAugImpl(TD3Impl):
             batch._observations = self._scaler.reverse_transform(batch._observations)
             batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
 
-            batch, batch_aug = self.do_augmentation(batch)
+            batch, batch_aug = self.do_augmentation(batch, for_critic=True)
 
             with torch.no_grad():
                 q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
@@ -178,7 +178,7 @@ class TD3PlusBCAugImpl(TD3Impl):
             batch._observations = self._scaler.reverse_transform(batch._observations)
             batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
 
-            batch, batch_aug = self.do_augmentation(batch)
+            batch, batch_aug = self.do_augmentation(batch, for_critic=True)
 
             with torch.no_grad():
                 q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
@@ -256,7 +256,7 @@ class TD3PlusBCAugImpl(TD3Impl):
             batch._observations = self._scaler.reverse_transform(batch._observations)
             batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
 
-            batch, batch_aug = self.do_augmentation(batch)
+            batch, batch_aug = self.do_augmentation(batch, for_critic=False)
 
             batch._observations = self._scaler.transform(batch._observations)
             batch._next_observations = self._scaler.transform(batch._next_observations)
@@ -291,7 +291,7 @@ class TD3PlusBCAugImpl(TD3Impl):
             batch._observations = self._scaler.reverse_transform(batch._observations)
             batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
 
-            batch, batch_aug = self.do_augmentation(batch)
+            batch, batch_aug = self.do_augmentation(batch, for_critic=False)
 
             batch._observations = self._scaler.transform(batch._observations)
             batch._next_observations = self._scaler.transform(batch._next_observations)
@@ -333,7 +333,7 @@ class TD3PlusBCAugImpl(TD3Impl):
 
         return loss.cpu().detach().numpy(), extra_logs
 
-    def do_augmentation(self, batch: TorchMiniBatch):
+    def do_augmentation(self, batch: TorchMiniBatch, for_critic=True):
         #### Always assuming obs, next_obs in original space, i.e.: without normalized, standardized
 
         batch_aug = copy.deepcopy(batch)
@@ -359,6 +359,10 @@ class TD3PlusBCAugImpl(TD3Impl):
             num_steps = self._transform_params.get('num_steps', None)
             step_size = self._transform_params.get('step_size', None)
             attack_type = self._transform_params.get('attack_type', None)
+            attack_type_for_actor = self._transform_params.get('attack_type_for_actor', None)
+            if attack_type_for_actor is not None and for_critic is False:
+                attack_type = attack_type_for_actor
+
             assert (epsilon is not None) and (num_steps is not None) and \
                    (step_size is not None) and (attack_type is not None)
 
@@ -379,17 +383,17 @@ class TD3PlusBCAugImpl(TD3Impl):
 
             elif attack_type in ['critic_normal']:
                 adv_x = critic_normal_attack(batch_aug._observations,
-                                      self._policy, self._q_func,
-                                      epsilon, num_steps, step_size,
-                                      self._obs_min, self._obs_max,
-                                      self._scaler)
+                                             self._policy, self._q_func,
+                                             epsilon, num_steps, step_size,
+                                             self._obs_min, self._obs_max,
+                                             self._scaler)
                 batch_aug._observations = adv_x
 
                 adv_x = critic_normal_attack(batch_aug._next_observations,
-                                                self._policy, self._q_func,
-                                                epsilon, num_steps, step_size,
-                                                self._obs_min, self._obs_max,
-                                                self._scaler)
+                                             self._policy, self._q_func,
+                                             epsilon, num_steps, step_size,
+                                             self._obs_min, self._obs_max,
+                                             self._scaler)
                 batch_aug._next_observations = adv_x
 
             elif attack_type in ['critic_mqd']:
