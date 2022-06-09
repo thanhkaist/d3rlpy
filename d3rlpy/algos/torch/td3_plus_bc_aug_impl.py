@@ -4,6 +4,7 @@ from typing import Optional, Sequence, Tuple
 import copy
 
 import torch
+import torch.nn.functional as F
 import numpy as np
 
 from ...gpu import Device
@@ -170,22 +171,23 @@ class TD3PlusBCAugImpl(TD3Impl):
             batch, batch_aug = self.do_augmentation(batch, for_critic=True)
 
             with torch.no_grad():
+                # This is for logging
                 q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
-                q1_pred = q_prediction[0].cpu().detach()
-                q2_pred = q_prediction[1].cpu().detach()
+                q1_pred = q_prediction[0]
+                q2_pred = q_prediction[1]
 
-                q_prediction_adv = self._q_func(batch_aug.observations, batch_aug.actions,
-                                                reduction="none")
-                q1_pred_adv_diff = (q_prediction_adv[0].cpu().detach() - q1_pred).numpy().mean()
-                q2_pred_adv_diff = (q_prediction_adv[1].cpu().detach() - q2_pred).numpy().mean()
-                q1_pred = q1_pred.numpy().mean()
-                q2_pred = q2_pred.numpy().mean()
+                q_prediction_adv = self._q_func(batch_aug.observations, batch_aug.actions, reduction="none")
+                q1_pred_adv_diff = (q_prediction_adv[0] - q1_pred).cpu().numpy().mean()
+                q2_pred_adv_diff = (q_prediction_adv[1] - q2_pred).cpu().numpy().mean()
+                q1_pred = q1_pred.cpu().numpy().mean()
+                q2_pred = q2_pred.cpu().numpy().mean()
 
 
             with torch.no_grad():
                 current_action = self._policy(batch.observations)
-                current_action_adv = self._policy(batch_aug.observations).detach()
                 gt_qval = self._q_func(batch.observations, current_action, "none").detach()
+
+                current_action_adv = self._policy(batch_aug.observations).detach()
 
 
             self._critic_optim.zero_grad()
@@ -194,16 +196,19 @@ class TD3PlusBCAugImpl(TD3Impl):
 
             loss = self.compute_critic_loss(batch, q_tpn)
 
+            # Compute regularization
             qval_adv = self._q_func(batch.observations, current_action_adv, "none")
-            critic_reg_loss = ((qval_adv[0] - gt_qval[0]) ** 2).mean() + \
-                              ((qval_adv[1] - gt_qval[1]) ** 2).mean()
+            q1_reg_loss = F.mse_loss(qval_adv[0], gt_qval[0])
+            q2_reg_loss = F.mse_loss(qval_adv[1], gt_qval[1])
+            critic_reg_loss = (q1_reg_loss + q2_reg_loss) / 2
+
             loss += critic_reg_coef * critic_reg_loss
 
             loss.backward()
             self._critic_optim.step()
 
             extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
-                          q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_loss.item())
+                          q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_coef * critic_reg_loss.item())
 
         else:
             q1_pred_adv_diff, q2_pred_adv_diff = 0.0, 0.0
