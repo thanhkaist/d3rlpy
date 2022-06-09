@@ -29,6 +29,7 @@ scripts/
 
 s123_eval_results/
 s144_eval_results/
+s144_eval_results_ablation/
 s68_eval_results/
 s41_eval_results/
 
