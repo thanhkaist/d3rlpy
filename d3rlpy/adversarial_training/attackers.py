@@ -67,7 +67,43 @@ def critic_normal_attack(x, _policy, _q_func, epsilon, num_steps, step_size, _ob
             adv_x = scaler.transform(adv_x).detach()
 
     elif optimizer == 'sgld':
-        raise NotImplementedError
+        step_eps = step_size
+
+        adv_ub = ori_x + epsilon
+        adv_lb = ori_x - epsilon
+
+        beta = 1e-5
+        noise_factor = torch.sqrt(2 * step_eps) * beta
+
+        # First SGLD step, the gradient is 0, so only need to add noise. Project to Linf box.
+        adv_x = (ori_x.clone() + (noise_factor * torch.randn_like(ori_x)).sign() * step_eps).detach()
+
+        for i in range(num_steps):
+            adv_x.requires_grad = True
+
+            # Find a nearby state adv_phi that maximize the difference
+            action = _policy(adv_x)
+            qval = _q_func(ori_x, action, "none")[q_func_id]
+
+            cost = -qval.mean()
+
+            grad = torch.autograd.grad(cost, adv_x, retain_graph=False, create_graph=False)[0]
+
+            # Reduce noise at every step. We start at step 2.
+            noise_factor = torch.sqrt(2 * step_eps) * beta / (i + 2)
+
+            # Project noisy gradient to step boundary.
+            update = (grad + noise_factor * torch.randn_like(ori_x)).sign() * step_eps
+            adv_x = adv_x + update
+
+            # clip into the upper and lower bounds
+            adv_x = torch.max(adv_x, adv_lb)
+            adv_x = torch.min(adv_x, adv_ub)
+
+            # This clamp is performed in ORIGINAL scale
+            adv_x = scaler.reverse_transform(adv_x)
+            adv_x = clamp(adv_x, _obs_min, _obs_max)
+            adv_x = scaler.transform(adv_x).detach()
 
     else:
         raise NotImplementedError
@@ -179,13 +215,15 @@ def actor_mad_attack(x, _policy, _q_func, epsilon, num_steps, step_size, _obs_mi
         noise_factor = torch.sqrt(2 * step_eps) * beta
 
         # First SGLD step, the gradient is 0, so only need to add noise. Project to Linf box.
-        adv_x = (ori_x.clone() + (noise_factor * torch.randn_like(ori_x)).sign() * step_eps).detach().requires_grad_()
+        adv_x = (ori_x.clone() + (noise_factor * torch.randn_like(ori_x)).sign() * step_eps).detach()
 
         for i in range(num_steps):
-            # Find a nearby state adv_phi that maximize the difference
-            adv_loss = (_policy(adv_x) - gt_action).pow(2).mean()
+            adv_x.requires_grad = True
 
-            grad = torch.autograd.grad(adv_loss, adv_x, retain_graph=False, create_graph=False)[0]
+            # Find a nearby state adv_phi that maximize the difference
+            cost = (_policy(adv_x) - gt_action).pow(2).mean()
+
+            grad = torch.autograd.grad(cost, adv_x, retain_graph=False, create_graph=False)[0]
 
             # Reduce noise at every step. We start at step 2.
             noise_factor = torch.sqrt(2 * step_eps) * beta / (i + 2)
@@ -201,7 +239,7 @@ def actor_mad_attack(x, _policy, _q_func, epsilon, num_steps, step_size, _obs_mi
             # This clamp is performed in ORIGINAL scale
             adv_x = scaler.reverse_transform(adv_x)
             adv_x = clamp(adv_x, _obs_min, _obs_max)
-            adv_x = scaler.transform(adv_x).detach().requires_grad_()
+            adv_x = scaler.transform(adv_x).detach()
 
     else:
         raise NotImplementedError

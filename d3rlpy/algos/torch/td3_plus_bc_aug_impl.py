@@ -319,6 +319,8 @@ class TD3PlusBCAugImpl(TD3Impl):
         step_size = self._transform_params.get('step_size', None)
         attack_type = self._transform_params.get('attack_type', None)
         attack_type_for_actor = self._transform_params.get('attack_type_for_actor', None)
+        optimizer = self._transform_params.get('optimizer', 'pgd')
+
         if (attack_type_for_actor is not None) and (for_critic is False):
             # This attack is specified for attack actor
             attack_type = attack_type_for_actor
@@ -346,14 +348,14 @@ class TD3PlusBCAugImpl(TD3Impl):
                                          self._policy, self._q_func,
                                          epsilon, num_steps, step_size,
                                          self._obs_min, self._obs_max,
-                                         self._scaler)
+                                         self._scaler, optimizer=optimizer)
             batch_aug._observations = adv_x
 
             adv_x = critic_normal_attack(batch_aug._next_observations,
                                          self._policy, self._q_func,
                                          epsilon, num_steps, step_size,
                                          self._obs_min, self._obs_max,
-                                         self._scaler)
+                                         self._scaler, optimizer=optimizer)
             batch_aug._next_observations = adv_x
 
         elif attack_type in ['critic_mqd']:
@@ -371,14 +373,14 @@ class TD3PlusBCAugImpl(TD3Impl):
                                      self._policy, self._q_func,
                                      epsilon, num_steps, step_size,
                                      self._obs_min, self._obs_max,
-                                     self._scaler)
+                                     self._scaler, optimizer=optimizer)
             batch_aug._observations = adv_x
 
             adv_x = actor_mad_attack(batch_aug._next_observations,
                                      self._policy, self._q_func,
                                      epsilon, num_steps, step_size,
                                      self._obs_min, self._obs_max,
-                                     self._scaler)
+                                     self._scaler, optimizer=optimizer)
             batch_aug._next_observations = adv_x
 
         else:

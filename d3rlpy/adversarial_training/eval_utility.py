@@ -58,7 +58,8 @@ def eval_env_under_attack(params):
         print("[INFO] Using %s attack: eps=%f, n_iters=%d, sz=%f" %
               (params.attack_type.upper(), attack_epsilon, params.attack_iteration, attack_stepsize))
 
-    def attack(state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None):
+    def attack(state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None,
+               optimizer='pgd'):
         if type in ['random']:
             ori_state_tensor = tensor(state, algo._impl.device)
             perturb_state = random_attack(
@@ -74,7 +75,7 @@ def eval_env_under_attack(params):
                 ori_state_tensor, algo._impl._policy, algo._impl._q_func,
                 attack_epsilon, attack_iteration, attack_stepsize,
                 algo._impl._obs_min, algo._impl._obs_max,
-                algo.scaler
+                algo.scaler, optimizer=optimizer
             )
             perturb_state = perturb_state.cpu().numpy()
 
@@ -84,7 +85,7 @@ def eval_env_under_attack(params):
                 ori_state_tensor, algo._impl._policy, algo._impl._q_func,
                 attack_epsilon, attack_iteration, attack_stepsize,
                 algo._impl._obs_min, algo._impl._obs_max,
-                algo.scaler
+                algo.scaler, optimizer=optimizer
             )
             perturb_state = perturb_state.cpu().numpy()
 
@@ -100,7 +101,8 @@ def eval_env_under_attack(params):
             env.seed(start_seed + i)
         state = env.reset()
 
-        state = attack(state, attack_type, attack_epsilon, params.attack_iteration, attack_stepsize)
+        state = attack(state, attack_type, attack_epsilon, params.attack_iteration, attack_stepsize,
+                       optimizer=params.optimizer)
         episode_reward = 0.0
 
         while True:
@@ -108,7 +110,8 @@ def eval_env_under_attack(params):
             action = algo.predict([state])[0]
 
             state, reward, done, _ = env.step(action)
-            state = attack(state, attack_type, attack_epsilon, params.attack_iteration, attack_stepsize)
+            state = attack(state, attack_type, attack_epsilon, params.attack_iteration, attack_stepsize,
+                           optimizer=params.optimizer)
             episode_reward += reward
 
             if done:

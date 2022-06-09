@@ -38,11 +38,13 @@ def main():
     SUPPORTED_TRANSFORMS = ['adversarial_training']
     SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad', 'critic_mqd']
     SUPPORTED_ROBUSTS = ['actor_mad', 'critic_reg', 'critic_drq', 'actor_on_adv']
+    SUPPORTED_OPTIMS = ['pgd', 'sgld']
 
     parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
     parser.add_argument('--attack_type', type=str, default='critic_normal', choices=SUPPORTED_ATTACKS)
     parser.add_argument('--attack_type_for_actor', type=str, default=None, choices=SUPPORTED_ATTACKS)
     parser.add_argument('--robust_type', type=str, default='actor_mad', choices=SUPPORTED_ROBUSTS, nargs='+')
+    parser.add_argument('--optimizer', type=str, default='pgd', choices=SUPPORTED_OPTIMS)
 
     parser.add_argument('--epsilon', type=float, default=0.05)
     parser.add_argument('--num_steps', type=int, default=5)
@@ -96,6 +98,7 @@ def main():
         critic_reg_coef=args.critic_reg_coef,
         actor_reg_coef=args.actor_reg_coef,
         prob_of_actor_on_adv=args.prob_of_actor_on_adv,
+        optimizer=args.optimizer,
     )
     td3 = d3rlpy.algos.TD3PlusBCAug(
         actor_learning_rate=3e-4,
