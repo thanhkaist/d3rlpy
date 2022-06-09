@@ -58,21 +58,25 @@ def eval_env_under_attack(params):
         print("[INFO] Using %s attack: eps=%f, n_iters=%d, sz=%f" %
               (params.attack_type.upper(), attack_epsilon, params.attack_iteration, attack_stepsize))
 
-    def attack(state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None,
+    def perturb(state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None,
                optimizer='pgd'):
+        """" NOTE: This state is taken directly from environment, so it is un-normalized, when we
+        return the perturbed state, it must be un-normalized
+        """""
+        state_tensor = tensor(state, algo._impl.device)     # Normalize state, for doing attack
+        state_tensor = algo.scaler.transform(state_tensor)
+
         if type in ['random']:
-            ori_state_tensor = tensor(state, algo._impl.device)
             perturb_state = random_attack(
-                ori_state_tensor, attack_epsilon,
+                state_tensor, attack_epsilon,
                 algo._impl._obs_min, algo._impl._obs_max,
                 algo.scaler
             )
             perturb_state = perturb_state.cpu().numpy()
 
         elif type in ['critic_normal']:
-            ori_state_tensor = tensor(state, algo._impl.device)         # original, unnormalized
             perturb_state = critic_normal_attack(
-                ori_state_tensor, algo._impl._policy, algo._impl._q_func,
+                state_tensor, algo._impl._policy, algo._impl._q_func,
                 attack_epsilon, attack_iteration, attack_stepsize,
                 algo._impl._obs_min, algo._impl._obs_max,
                 algo.scaler, optimizer=optimizer
@@ -80,9 +84,8 @@ def eval_env_under_attack(params):
             perturb_state = perturb_state.cpu().numpy()
 
         elif type in ['actor_mad']:
-            ori_state_tensor = tensor(state, algo._impl.device)         # original, unnormalized
             perturb_state = actor_mad_attack(
-                ori_state_tensor, algo._impl._policy, algo._impl._q_func,
+                state_tensor, algo._impl._policy, algo._impl._q_func,
                 attack_epsilon, attack_iteration, attack_stepsize,
                 algo._impl._obs_min, algo._impl._obs_max,
                 algo.scaler, optimizer=optimizer
@@ -91,6 +94,9 @@ def eval_env_under_attack(params):
 
         else:
             raise NotImplementedError
+
+        # Normalize state, for doing attack
+        perturb_state = algo.scaler.reverse_transform(perturb_state)
         return perturb_state.squeeze()
 
     episode_rewards = []
@@ -101,17 +107,18 @@ def eval_env_under_attack(params):
             env.seed(start_seed + i)
         state = env.reset()
 
-        state = attack(state, attack_type, attack_epsilon, params.attack_iteration, attack_stepsize,
-                       optimizer=params.optimizer)
         episode_reward = 0.0
 
         while True:
             # take action
+            state = perturb(
+                state,
+                attack_type, attack_epsilon, params.attack_iteration, attack_stepsize,
+                optimizer=params.optimizer
+            )
             action = algo.predict([state])[0]
 
             state, reward, done, _ = env.step(action)
-            state = attack(state, attack_type, attack_epsilon, params.attack_iteration, attack_stepsize,
-                           optimizer=params.optimizer)
             episode_reward += reward
 
             if done:
