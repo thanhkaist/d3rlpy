@@ -35,7 +35,7 @@ def main():
     parser.add_argument('--eval_interval', type=int, default=50)
     parser.add_argument('--n_eval_episodes', type=int, default=10)
 
-    SUPPORTED_TRANSFORMS = ['random', 'adversarial_training']
+    SUPPORTED_TRANSFORMS = ['adversarial_training']
     SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad', 'critic_mqd']
     SUPPORTED_ROBUSTS = ['actor_mad', 'critic_reg', 'critic_drq', 'actor_on_adv']
 

@@ -139,9 +139,6 @@ class TD3PlusBCAugImpl(TD3Impl):
         critic_reg_coef = self._transform_params.get('critic_reg_coef', 0)
 
         if 'critic_drq' in robust_type:
-            batch._observations = self._scaler.reverse_transform(batch._observations)
-            batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
-
             batch, batch_aug = self.do_augmentation(batch, for_critic=True)
 
             with torch.no_grad():
@@ -154,11 +151,6 @@ class TD3PlusBCAugImpl(TD3Impl):
                 q2_pred_adv_diff = (q_prediction_adv[1].cpu().detach() - q2_pred).numpy().mean()
                 q1_pred = q1_pred.numpy().mean()
                 q2_pred = q2_pred.numpy().mean()
-
-            batch._observations = self._scaler.transform(batch._observations)
-            batch._next_observations = self._scaler.transform(batch._next_observations)
-            batch_aug._observations = self._scaler.transform(batch_aug._observations)
-            batch_aug._next_observations = self._scaler.transform(batch_aug._next_observations)
 
             self._critic_optim.zero_grad()
 
@@ -175,9 +167,6 @@ class TD3PlusBCAugImpl(TD3Impl):
             extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
                           q1_pred_adv_diff, q2_pred_adv_diff)
         elif 'critic_reg' in robust_type:
-            batch._observations = self._scaler.reverse_transform(batch._observations)
-            batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
-
             batch, batch_aug = self.do_augmentation(batch, for_critic=True)
 
             with torch.no_grad():
@@ -191,11 +180,6 @@ class TD3PlusBCAugImpl(TD3Impl):
                 q2_pred_adv_diff = (q_prediction_adv[1].cpu().detach() - q2_pred).numpy().mean()
                 q1_pred = q1_pred.numpy().mean()
                 q2_pred = q2_pred.numpy().mean()
-
-            batch._observations = self._scaler.transform(batch._observations)
-            batch._next_observations = self._scaler.transform(batch._next_observations)
-            batch_aug._observations = self._scaler.transform(batch_aug._observations)
-            batch_aug._next_observations = self._scaler.transform(batch_aug._next_observations)
 
 
             with torch.no_grad():
@@ -253,15 +237,7 @@ class TD3PlusBCAugImpl(TD3Impl):
         if 'actor_mad' in robust_type:
             actor_reg_coef = self._transform_params.get('actor_reg_coef', 0)
 
-            batch._observations = self._scaler.reverse_transform(batch._observations)
-            batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
-
             batch, batch_aug = self.do_augmentation(batch, for_critic=False)
-
-            batch._observations = self._scaler.transform(batch._observations)
-            batch._next_observations = self._scaler.transform(batch._next_observations)
-            batch_aug._observations = self._scaler.transform(batch_aug._observations)
-            batch_aug._next_observations = self._scaler.transform(batch_aug._next_observations)
 
             # Q function should be inference mode for stability
             self._q_func.eval()
@@ -288,15 +264,7 @@ class TD3PlusBCAugImpl(TD3Impl):
             prob_of_actor_on_adv = self._transform_params.get('prob_of_actor_on_adv', 0)
             assert actor_reg_coef == 0 and (0 < prob_of_actor_on_adv <= 1)
 
-            batch._observations = self._scaler.reverse_transform(batch._observations)
-            batch._next_observations = self._scaler.reverse_transform(batch._next_observations)
-
             batch, batch_aug = self.do_augmentation(batch, for_critic=False)
-
-            batch._observations = self._scaler.transform(batch._observations)
-            batch._next_observations = self._scaler.transform(batch._next_observations)
-            batch_aug._observations = self._scaler.transform(batch_aug._observations)
-            batch_aug._next_observations = self._scaler.transform(batch_aug._next_observations)
 
             # Q function should be inference mode for stability
             self._q_func.eval()
@@ -334,11 +302,26 @@ class TD3PlusBCAugImpl(TD3Impl):
         return loss.cpu().detach().numpy(), extra_logs
 
     def do_augmentation(self, batch: TorchMiniBatch, for_critic=True):
-        #### Always assuming obs, next_obs in original space, i.e.: without normalized, standardized
+        """" NOTE: Assume obs, next_obs are already normalized """""
 
         batch_aug = copy.deepcopy(batch)
         # Transforming the copied batch
-        if self._transform in ['random']:
+
+        assert self._transform in ['adversarial_training']
+        #### Using PGD with Linf-norm
+        epsilon = self._transform_params.get('epsilon', None)
+        num_steps = self._transform_params.get('num_steps', None)
+        step_size = self._transform_params.get('step_size', None)
+        attack_type = self._transform_params.get('attack_type', None)
+        attack_type_for_actor = self._transform_params.get('attack_type_for_actor', None)
+        if (attack_type_for_actor is not None) and (for_critic is False):
+            # This attack is specified for attack actor
+            attack_type = attack_type_for_actor
+
+        assert (epsilon is not None) and (num_steps is not None) and \
+               (step_size is not None) and (attack_type is not None)
+
+        if attack_type in ['random']:
             assert self._transform_params is not None, "Cannot find params for random transform."
             epsilon = self._transform_params.get('epsilon', None)
             assert epsilon is not None, "Please provide the epsilon for random transform."
@@ -353,77 +336,48 @@ class TD3PlusBCAugImpl(TD3Impl):
                                   self.scaler)
             batch_aug._next_observations = adv_x
 
-        elif self._transform in ['adversarial_training']:
-            #### Using PGD with Linf-norm
-            epsilon = self._transform_params.get('epsilon', None)
-            num_steps = self._transform_params.get('num_steps', None)
-            step_size = self._transform_params.get('step_size', None)
-            attack_type = self._transform_params.get('attack_type', None)
-            attack_type_for_actor = self._transform_params.get('attack_type_for_actor', None)
-            if attack_type_for_actor is not None and for_critic is False:
-                attack_type = attack_type_for_actor
-
-            assert (epsilon is not None) and (num_steps is not None) and \
-                   (step_size is not None) and (attack_type is not None)
-
-            if attack_type in ['random']:
-                assert self._transform_params is not None, "Cannot find params for random transform."
-                epsilon = self._transform_params.get('epsilon', None)
-                assert epsilon is not None, "Please provide the epsilon for random transform."
-
-                adv_x = random_attack(batch_aug._observations, epsilon,
-                                      self._obs_min, self._obs_max,
-                                      self.scaler)
-                batch_aug._observations = adv_x
-
-                adv_x = random_attack(batch_aug._next_observations, epsilon,
-                                      self._obs_min, self._obs_max,
-                                      self.scaler)
-                batch_aug._next_observations = adv_x
-
-            elif attack_type in ['critic_normal']:
-                adv_x = critic_normal_attack(batch_aug._observations,
-                                             self._policy, self._q_func,
-                                             epsilon, num_steps, step_size,
-                                             self._obs_min, self._obs_max,
-                                             self._scaler)
-                batch_aug._observations = adv_x
-
-                adv_x = critic_normal_attack(batch_aug._next_observations,
-                                             self._policy, self._q_func,
-                                             epsilon, num_steps, step_size,
-                                             self._obs_min, self._obs_max,
-                                             self._scaler)
-                batch_aug._next_observations = adv_x
-
-            elif attack_type in ['critic_mqd']:
-                adv_x = critic_mqd_attack(batch_aug._observations,
-                                          batch_aug._actions,
-                                          self._policy, self._q_func,
-                                          epsilon, num_steps, step_size,
-                                          self._obs_min, self._obs_max,
-                                          self._scaler)
-                batch_aug._observations = adv_x
-
-
-            elif attack_type in ['actor_mad']:
-                adv_x = actor_mad_attack(batch_aug._observations,
+        elif attack_type in ['critic_normal']:
+            adv_x = critic_normal_attack(batch_aug._observations,
                                          self._policy, self._q_func,
                                          epsilon, num_steps, step_size,
                                          self._obs_min, self._obs_max,
                                          self._scaler)
-                batch_aug._observations = adv_x
+            batch_aug._observations = adv_x
 
-                adv_x = actor_mad_attack(batch_aug._next_observations,
+            adv_x = critic_normal_attack(batch_aug._next_observations,
                                          self._policy, self._q_func,
                                          epsilon, num_steps, step_size,
                                          self._obs_min, self._obs_max,
                                          self._scaler)
-                batch_aug._next_observations = adv_x
+            batch_aug._next_observations = adv_x
 
-            else:
-                raise NotImplementedError
+        elif attack_type in ['critic_mqd']:
+            adv_x = critic_mqd_attack(batch_aug._observations,
+                                      batch_aug._actions,
+                                      self._policy, self._q_func,
+                                      epsilon, num_steps, step_size,
+                                      self._obs_min, self._obs_max,
+                                      self._scaler)
+            batch_aug._observations = adv_x
+
+
+        elif attack_type in ['actor_mad']:
+            adv_x = actor_mad_attack(batch_aug._observations,
+                                     self._policy, self._q_func,
+                                     epsilon, num_steps, step_size,
+                                     self._obs_min, self._obs_max,
+                                     self._scaler)
+            batch_aug._observations = adv_x
+
+            adv_x = actor_mad_attack(batch_aug._next_observations,
+                                     self._policy, self._q_func,
+                                     epsilon, num_steps, step_size,
+                                     self._obs_min, self._obs_max,
+                                     self._scaler)
+            batch_aug._next_observations = adv_x
+
         else:
             raise NotImplementedError
+
         return batch, batch_aug
 
