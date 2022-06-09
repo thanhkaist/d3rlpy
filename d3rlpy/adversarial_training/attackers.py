@@ -5,11 +5,17 @@ import numpy as np
 
 from .utility import clamp
 
+def preprocess_state(x):
+    if len(x.shape) == 1:
+        x = x.reshape((1,) + x.shape)
+
+    assert len(x.shape) == 2, "Currently only support the low-dimensional state"
+    return x
 
 def random_attack(x, epsilon, _obs_min, _obs_max, scaler):
     """" NOTE: x must be normalized """""
     assert isinstance(x, torch.Tensor), "input x must be tensor."
-    adv_x = x.clone().detach()
+    adv_x = preprocess_state(x).clone().detach()
     noise = torch.zeros_like(adv_x).uniform_(-epsilon, epsilon)
     adv_x = adv_x + noise
 
@@ -26,7 +32,7 @@ def critic_normal_attack(x, _policy, _q_func, epsilon, num_steps, step_size, _ob
     """" NOTE: x must be normalized """""
 
     assert isinstance(x, torch.Tensor), "input x must be tensor."
-    ori_x = x.clone().detach()                   # already normalized
+    ori_x = preprocess_state(x).clone().detach()                   # already normalized
 
     adv_x = ori_x.clone().detach()               # already normalized
 
@@ -75,7 +81,7 @@ def critic_mqd_attack(x, a, _policy, _q_func, epsilon, num_steps, step_size, _ob
     """" NOTE: x must be normalized """""
 
     assert isinstance(x, torch.Tensor), "input x must be tensor."
-    ori_x = x.clone().detach()                              # already normalized
+    ori_x = preprocess_state(x).clone().detach()                              # already normalized
 
     with torch.no_grad():
         gt_qval = _q_func(ori_x, a, "none")[q_func_id].detach()
@@ -125,7 +131,7 @@ def actor_mad_attack(x, _policy, _q_func, epsilon, num_steps, step_size, _obs_mi
     """" NOTE: x must be normalized """""
 
     assert isinstance(x, torch.Tensor), "input x must be tensor."
-    ori_x = x.clone().detach()                           # already normalized
+    ori_x = preprocess_state(x).clone().detach()                           # already normalized
 
     adv_x = ori_x.clone().detach()  # already normalized
 
