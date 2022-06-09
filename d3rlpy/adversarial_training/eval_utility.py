@@ -72,7 +72,6 @@ def eval_env_under_attack(params):
                 algo._impl._obs_min, algo._impl._obs_max,
                 algo.scaler
             )
-            perturb_state = perturb_state.cpu().numpy()
 
         elif type in ['critic_normal']:
             perturb_state = critic_normal_attack(
@@ -81,7 +80,6 @@ def eval_env_under_attack(params):
                 algo._impl._obs_min, algo._impl._obs_max,
                 algo.scaler, optimizer=optimizer
             )
-            perturb_state = perturb_state.cpu().numpy()
 
         elif type in ['actor_mad']:
             perturb_state = actor_mad_attack(
@@ -90,14 +88,13 @@ def eval_env_under_attack(params):
                 algo._impl._obs_min, algo._impl._obs_max,
                 algo.scaler, optimizer=optimizer
             )
-            perturb_state = perturb_state.cpu().numpy()
 
         else:
             raise NotImplementedError
 
         # Normalize state, for doing attack
-        perturb_state = algo.scaler.reverse_transform(perturb_state)
-        return perturb_state.squeeze()
+        perturb_state = algo.scaler.reverse_transform(perturb_state).squeeze().cpu().numpy()
+        return perturb_state
 
     episode_rewards = []
     for i in tqdm(range(n_trials), disable=(rank != 0), desc="{} attack".format(attack_type.upper())):
