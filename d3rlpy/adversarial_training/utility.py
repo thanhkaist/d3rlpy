@@ -84,8 +84,13 @@ def denormalize(x, min, max):
 def tensor(x, device='cpu'):
     if isinstance(x, torch.Tensor):
         return x
-    x = np.asarray(x, dtype=np.float)
-    x = torch.tensor(x, device=device, dtype=torch.float32)
+    if x.dtype == np.float64:
+        x = torch.tensor(x, device=device, dtype=torch.float64)
+    elif x.dtype == np.float32:
+        x = torch.tensor(x, device=device, dtype=torch.float32)
+    else:
+        raise NotImplementedError
+
     return x
 
 
