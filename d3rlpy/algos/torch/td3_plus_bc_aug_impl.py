@@ -81,11 +81,23 @@ class TD3PlusBCAugImpl(TD3Impl):
         self._transform_params = transform_params
 
         env_name_ = env_name.split('-')
-        env_name = env_name_[0] + '-' + env_name_[-1]
-        self._obs_max = torch.Tensor(ENV_OBS_RANGE[env_name]['max']).to(
+        self.env_name = env_name_[0] + '-' + env_name_[-1]
+        self._obs_max = torch.Tensor(ENV_OBS_RANGE[self.env_name]['max']).to(
             'cuda:{}'.format(self._use_gpu.get_id()))
-        self._obs_min = torch.Tensor(ENV_OBS_RANGE[env_name]['min']).to(
+        self._obs_min = torch.Tensor(ENV_OBS_RANGE[self.env_name]['min']).to(
             'cuda:{}'.format(self._use_gpu.get_id()))
+
+        self._obs_max_norm = self._obs_min_norm = None
+
+    def init_range_of_norm_obs(self):
+        self._obs_max_norm = self.scaler.transform(
+            torch.Tensor(ENV_OBS_RANGE[self.env_name]['max']).to('cuda:{}'.format(
+                self._use_gpu.get_id()))
+        )
+        self._obs_min_norm = self.scaler.transform(
+            torch.Tensor(ENV_OBS_RANGE[self.env_name]['min']).to('cuda:{}'.format(
+                self._use_gpu.get_id()))
+        )
 
     def compute_actor_loss(self, batch: TorchMiniBatch) \
         -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
