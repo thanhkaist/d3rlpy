@@ -11,6 +11,11 @@ import numpy as np
 from .utility import tensor
 from .attackers import random_attack, critic_normal_attack, actor_mad_attack
 
+def make_sure_type_is_float32(x):
+    assert isinstance(x, np.ndarray)
+    x = x.astype(np.float32) if x.dtype == np.float64 else x
+    assert x.dtype == np.float32
+    return x
 
 """
 ##### Functions used to evaluate
@@ -30,6 +35,7 @@ def eval_clean_env(params):
 
         while True:
             # take action
+            state = make_sure_type_is_float32(state)
             action = algo.predict([state])[0]
 
             state, reward, done, _ = env.step(action)
@@ -63,38 +69,39 @@ def eval_env_under_attack(params):
         """" NOTE: This state is taken directly from environment, so it is un-normalized, when we
         return the perturbed state, it must be un-normalized
         """""
-        state_tensor = tensor(state, algo._impl.device)     # Normalize state, for doing attack
+        state_tensor = tensor(state, algo._impl.device)
+
+        # Important: inside the attack functions, the state is assumed already normalized
         state_tensor = algo.scaler.transform(state_tensor)
 
         if type in ['random']:
             perturb_state = random_attack(
                 state_tensor, attack_epsilon,
-                algo._impl._obs_min, algo._impl._obs_max,
-                algo.scaler
+                algo._impl._obs_min_norm, algo._impl._obs_max_norm,
             )
 
         elif type in ['critic_normal']:
             perturb_state = critic_normal_attack(
                 state_tensor, algo._impl._policy, algo._impl._q_func,
                 attack_epsilon, attack_iteration, attack_stepsize,
-                algo._impl._obs_min, algo._impl._obs_max,
-                algo.scaler, optimizer=optimizer
+                algo._impl._obs_min_norm, algo._impl._obs_max_norm,
+                optimizer=optimizer
             )
 
         elif type in ['actor_mad']:
             perturb_state = actor_mad_attack(
                 state_tensor, algo._impl._policy, algo._impl._q_func,
                 attack_epsilon, attack_iteration, attack_stepsize,
-                algo._impl._obs_min, algo._impl._obs_max,
-                algo.scaler, optimizer=optimizer
+                algo._impl._obs_min_norm, algo._impl._obs_max_norm,
+                optimizer=optimizer
             )
 
         else:
             raise NotImplementedError
 
-        # Normalize state, for doing attack
-        perturb_state = algo.scaler.reverse_transform(perturb_state).squeeze().cpu().numpy()
-        return perturb_state
+        # De-normalize state for return in original scale
+        perturb_state = algo.scaler.reverse_transform(perturb_state)
+        return perturb_state.squeeze().cpu().numpy()
 
     episode_rewards = []
     for i in tqdm(range(n_trials), disable=(rank != 0), desc="{} attack".format(attack_type.upper())):
@@ -108,6 +115,7 @@ def eval_env_under_attack(params):
 
         while True:
             # take action
+            state = make_sure_type_is_float32(state)
             state = perturb(
                 state,
                 attack_type, attack_epsilon, params.attack_iteration, attack_stepsize,
@@ -116,6 +124,7 @@ def eval_env_under_attack(params):
             action = algo.predict([state])[0]
 
             state, reward, done, _ = env.step(action)
+
             episode_reward += reward
 
             if done:
