@@ -303,7 +303,7 @@ class StandardScaler(Scaler):
         dataset: Optional[MDPDataset] = None,
         mean: Optional[np.ndarray] = None,
         std: Optional[np.ndarray] = None,
-        eps: float = 1e-3,
+        eps: float = 1e-12,
     ):
         self._mean = None
         self._std = None
