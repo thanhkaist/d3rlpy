@@ -123,7 +123,6 @@ def main(args):
 
     ### Initialize algorithm
     td3 = d3rlpy.algos.TD3PlusBC(scaler="standard", use_gpu=args.gpu, env_name=args.dataset)
-    td3.build_with_env(env)  # Create policy/critic w.r.t. env
 
     ### Convert dataset to list of transitions to compute mean & std
     transitions = []
@@ -131,6 +130,7 @@ def main(args):
         transitions += episode.transitions
     td3._scaler.fit(transitions)  # Compute mean & std of dataset
 
+    td3.build_with_env(env)  # Create policy/critic for env, must be performed after fitting scaler
 
     list_checkpoints = make_checkpoint_list(args.ckpt, args.n_seeds_want_to_test, args.ckpt_steps)
 
