@@ -84,14 +84,9 @@ def denormalize(x, min, max):
 def tensor(x, device='cpu'):
     if isinstance(x, torch.Tensor):
         return x
-    if x.dtype == np.float64:
-        x = torch.tensor(x, device=device, dtype=torch.float64)
-    elif x.dtype == np.float32:
-        x = torch.tensor(x, device=device, dtype=torch.float32)
-    else:
-        raise NotImplementedError
-
-    return x
+    dtype = torch.uint8 if x.dtype == np.uint8 else torch.float32
+    tensor = torch.tensor(data=x, dtype=dtype, device=device)
+    return tensor.float()
 
 
 def clamp(x, vec_min, vec_max):
