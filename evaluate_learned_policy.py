@@ -138,7 +138,7 @@ def main(args):
 
     # Initialize writer for first checkpoint, and append next checkpoints
     writer = EvalLogger(ckpt=list_checkpoints[0], eval_logdir=args.eval_logdir,
-                        prefix='eval_v1')
+                        prefix='eval_v1', eval_args=args)
 
     # Structure: NxRxC = N attack's types x R epsilon values x C seeds
     N = len(args.attack_type_list)

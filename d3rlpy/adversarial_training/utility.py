@@ -192,10 +192,11 @@ def make_bound_for_network(algo):
 
 
 class EvalLogger():
-    def __init__(self, ckpt, eval_logdir, prefix="eval"):
+    def __init__(self, ckpt, eval_logdir, prefix="eval", eval_args=None):
 
         # Extract required information
         assert os.path.isfile(ckpt)
+        self.eval_args = eval_args
 
         self.init_info_from_ckpt(ckpt)
 
@@ -207,7 +208,17 @@ class EvalLogger():
         self.logfile = os.path.join(eval_logdir, self.filename)
         self.writer = open(self.logfile, "w")
 
+        if eval_args is not None:
+            self.write_eval_args()
         self.write_header()
+
+    def write_eval_args(self):
+        self.writer.write("\n\n********* EVALUATION PARAMS *********\n\n")
+        for key, val in vars(self.eval_args).items():
+            self.writer.write("\t\t%s: %s\n" % (key, val))
+
+        self.writer.write("\n\n*************************************\n\n")
+
 
     def init_info_from_ckpt(self, ckpt):
         checkpoint_step = ckpt.split('/')[-1]
