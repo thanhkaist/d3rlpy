@@ -346,28 +346,26 @@ class TD3PlusBCAugImpl(TD3Impl):
             assert epsilon is not None, "Please provide the epsilon for random transform."
 
             adv_x = random_attack(batch_aug._observations, epsilon,
-                                  self._obs_min, self._obs_max,
-                                  self.scaler)
+                                  self._obs_min_norm, self._obs_max_norm)
             batch_aug._observations = adv_x
 
             adv_x = random_attack(batch_aug._next_observations, epsilon,
-                                  self._obs_min, self._obs_max,
-                                  self.scaler)
+                                  self._obs_min_norm, self._obs_max_norm)
             batch_aug._next_observations = adv_x
 
         elif attack_type in ['critic_normal']:
             adv_x = critic_normal_attack(batch_aug._observations,
                                          self._policy, self._q_func,
                                          epsilon, num_steps, step_size,
-                                         self._obs_min, self._obs_max,
-                                         self._scaler, optimizer=optimizer)
+                                         self._obs_min_norm, self._obs_max_norm,
+                                         optimizer=optimizer)
             batch_aug._observations = adv_x
 
             adv_x = critic_normal_attack(batch_aug._next_observations,
                                          self._policy, self._q_func,
                                          epsilon, num_steps, step_size,
-                                         self._obs_min, self._obs_max,
-                                         self._scaler, optimizer=optimizer)
+                                         self._obs_min_norm, self._obs_max_norm,
+                                         optimizer=optimizer)
             batch_aug._next_observations = adv_x
 
         elif attack_type in ['critic_mqd']:
@@ -375,8 +373,7 @@ class TD3PlusBCAugImpl(TD3Impl):
                                       batch_aug._actions,
                                       self._policy, self._q_func,
                                       epsilon, num_steps, step_size,
-                                      self._obs_min, self._obs_max,
-                                      self._scaler)
+                                      self._obs_min_norm, self._obs_max_norm)
             batch_aug._observations = adv_x
 
 
@@ -384,15 +381,15 @@ class TD3PlusBCAugImpl(TD3Impl):
             adv_x = actor_mad_attack(batch_aug._observations,
                                      self._policy, self._q_func,
                                      epsilon, num_steps, step_size,
-                                     self._obs_min, self._obs_max,
-                                     self._scaler, optimizer=optimizer)
+                                     self._obs_min_norm, self._obs_max_norm,
+                                     optimizer=optimizer)
             batch_aug._observations = adv_x
 
             adv_x = actor_mad_attack(batch_aug._next_observations,
                                      self._policy, self._q_func,
                                      epsilon, num_steps, step_size,
-                                     self._obs_min, self._obs_max,
-                                     self._scaler, optimizer=optimizer)
+                                     self._obs_min_norm, self._obs_max_norm,
+                                     optimizer=optimizer)
             batch_aug._next_observations = adv_x
 
         else:
