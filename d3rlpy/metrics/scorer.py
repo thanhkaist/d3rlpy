@@ -12,6 +12,7 @@ from ..preprocessing.stack import StackedObservation
 import d4rl
 from ..adversarial_training.attackers import critic_normal_attack, actor_mad_attack, random_attack
 from ..adversarial_training.utility import tensor
+from ..adversarial_training.eval_utility import make_sure_type_is_float32
 
 WINDOW_SIZE = 1024
 
@@ -475,6 +476,7 @@ def evaluate_on_environment(
                     if is_image:
                         action = algo.predict([stacked_observation.eval()])[0]
                     else:
+                        observation = make_sure_type_is_float32(observation)
                         action = algo.predict([observation])[0]
 
                 observation, reward, done, _ = env.step(action)
@@ -544,39 +546,44 @@ def evaluate_on_environment_with_attack(
     observation_shape = env.observation_space.shape
     is_image = len(observation_shape) == 3
 
-    def attack(algo, state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None):
+    def perturb(algo, state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None,
+                optimizer='pgd'):
+        """" NOTE: This state is taken directly from environment, so it is un-normalized, when we
+        return the perturbed state, it must be un-normalized
+        """""
+        state_tensor = tensor(state, algo._impl.device)
+
+        # Important: inside the attack functions, the state is assumed already normalized
+        state_tensor = algo.scaler.transform(state_tensor)  # Normalize state, for doing attack
+
         if type in ['random']:
-            ori_state_tensor = tensor(state, algo._impl.device)
             perturb_state = random_attack(
-                ori_state_tensor, attack_epsilon,
-                algo._impl._obs_min, algo._impl._obs_max,
-                algo.scaler
+                state_tensor, attack_epsilon,
+                algo._impl._obs_min_norm, algo._impl._obs_max_norm,
             )
-            perturb_state = perturb_state.cpu().numpy()
 
         elif type in ['critic_normal']:
-            ori_state_tensor = tensor(state, algo._impl.device)         # original, unnormalized
             perturb_state = critic_normal_attack(
-                ori_state_tensor, algo._impl._policy, algo._impl._q_func,
+                state_tensor, algo._impl._policy, algo._impl._q_func,
                 attack_epsilon, attack_iteration, attack_stepsize,
-                algo._impl._obs_min, algo._impl._obs_max,
-                algo.scaler
+                algo._impl._obs_min_norm, algo._impl._obs_max_norm,
+                optimizer=optimizer
             )
-            perturb_state = perturb_state.cpu().numpy()
 
         elif type in ['actor_mad']:
-            ori_state_tensor = tensor(state, algo._impl.device)         # original, unnormalized
             perturb_state = actor_mad_attack(
-                ori_state_tensor, algo._impl._policy, algo._impl._q_func,
+                state_tensor, algo._impl._policy, algo._impl._q_func,
                 attack_epsilon, attack_iteration, attack_stepsize,
-                algo._impl._obs_min, algo._impl._obs_max,
-                algo.scaler
+                algo._impl._obs_min_norm, algo._impl._obs_max_norm,
+                optimizer=optimizer
             )
-            perturb_state = perturb_state.cpu().numpy()
 
         else:
             raise NotImplementedError
-        return perturb_state.squeeze()
+
+        # De-normalize state for return in original scale
+        perturb_state = algo.scaler.reverse_transform(perturb_state)
+        return perturb_state.squeeze().cpu().numpy()
 
     def scorer(algo: AlgoProtocol, *args: Any) -> float:
         if is_image:
@@ -587,32 +594,21 @@ def evaluate_on_environment_with_attack(
         episode_rewards = []
         for _ in range(n_trials):
             observation = env.reset()
-            observation = attack(algo, observation, attack_type,
-                                 attack_epsilon, attack_iteration, attack_stepsize)
             episode_reward = 0.0
-
-            # frame stacking
-            if is_image:
-                stacked_observation.clear()
-                stacked_observation.append(observation)
 
             while True:
                 # take action
                 if np.random.random() < epsilon:
                     action = env.action_space.sample()
                 else:
-                    if is_image:
-                        action = algo.predict([stacked_observation.eval()])[0]
-                    else:
-                        action = algo.predict([observation])[0]
+                    observation = make_sure_type_is_float32(observation)
+                    observation = perturb(algo, observation, attack_type,
+                                         attack_epsilon, attack_iteration, attack_stepsize)
+                    action = algo.predict([observation])[0]
 
                 observation, reward, done, _ = env.step(action)
-                observation = attack(algo, observation, attack_type,
-                                     attack_epsilon, attack_iteration, attack_stepsize)
-                episode_reward += reward
 
-                if is_image:
-                    stacked_observation.append(observation)
+                episode_reward += reward
 
                 if render:
                     env.render()

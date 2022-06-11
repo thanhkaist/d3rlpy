@@ -132,7 +132,7 @@ def critic_mqd_attack(x, a, _policy, _q_func, epsilon, num_steps, step_size, _ob
 
             grad = torch.autograd.grad(cost, adv_x, retain_graph=False, create_graph=False)[0]
 
-            adv_x = adv_x.detach() + step_size * grad.detach()
+            adv_x = adv_x.detach() + step_size * torch.sign(grad.detach())
 
             delta = torch.clamp(adv_x - ori_x, min=-epsilon, max=epsilon)
             adv_x = ori_x + delta
