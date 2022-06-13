@@ -278,7 +278,13 @@ def train_single_env(
         if epoch > 0 and total_step % n_steps_per_epoch == 0:
             # evaluation
             if eval_scorer:
-                logger.add_metric("evaluation", eval_scorer(algo))
+                test_score = eval_scorer(algo)
+                if isinstance(test_score, tuple) and len(test_score) > 1:
+                    unnorm_score, norm_score = test_score
+                    logger.add_metric("environment", unnorm_score)
+                    logger.add_metric("environment_normalized", norm_score)
+                else:
+                    logger.add_metric("environment", test_score)
 
             if epoch % save_interval == 0:
                 logger.save_model(total_step, algo)
