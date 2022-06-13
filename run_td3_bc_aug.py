@@ -36,15 +36,15 @@ def main():
     parser.add_argument('--n_eval_episodes', type=int, default=10)
 
     SUPPORTED_TRANSFORMS = ['adversarial_training']
-    SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad', 'critic_mqd']
-    SUPPORTED_ROBUSTS = ['actor_mad', 'critic_reg', 'critic_drq', 'actor_on_adv']
+    SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad', 'critic_mqd','critic_mqd','critic_mqd_v2','critic_mqd_v3','critic_mqd_v4']
+    SUPPORTED_ROBUSTS = ['actor_mad', 'critic_reg', 'critic_drq', 'actor_on_adv','critic_reg_v2','critic_reg_v3','critic_reg_v4']
     SUPPORTED_OPTIMS = ['pgd', 'sgld']
 
     parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
     parser.add_argument('--attack_type', type=str, default='critic_normal', choices=SUPPORTED_ATTACKS)
     parser.add_argument('--attack_type_for_actor', type=str, default=None, choices=SUPPORTED_ATTACKS)
     parser.add_argument('--robust_type', type=str, default='actor_mad', choices=SUPPORTED_ROBUSTS, nargs='+')
-    parser.add_argument('--optimizer', type=str, default='pgd', choices=SUPPORTED_OPTIMS)
+    parser.add_argument('--optimizer', type=str, default='sgld', choices=SUPPORTED_OPTIMS)
 
     parser.add_argument('--epsilon', type=float, default=0.05)
     parser.add_argument('--num_steps', type=int, default=5)
@@ -66,10 +66,11 @@ def main():
 
     dataset, env = d3rlpy.datasets.get_dataset(args.dataset)
 
+
+
     # fix seed
     d3rlpy.seed(args.seed)
     env.seed(args.seed)
-
     _, test_episodes = train_test_split(dataset, test_size=0.2)
 
     # Define version:

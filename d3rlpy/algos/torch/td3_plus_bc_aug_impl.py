@@ -23,6 +23,7 @@ from ...adversarial_training.attackers import (
     actor_mad_attack,
     critic_normal_attack,
     critic_mqd_attack,
+    critic_mqd_attackV2
 )
 
 
@@ -90,6 +91,7 @@ class TD3PlusBCAugImpl(TD3Impl):
         self._obs_max_norm = self._obs_min_norm = None
 
     def init_range_of_norm_obs(self):
+        
         self._obs_max_norm = self.scaler.transform(
             torch.Tensor(ENV_OBS_RANGE[self.env_name]['max']).to('cuda:{}'.format(
                 self._use_gpu.get_id()))
@@ -103,6 +105,7 @@ class TD3PlusBCAugImpl(TD3Impl):
         -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         assert self._policy is not None
         assert self._q_func is not None
+
         action = self._policy(batch.observations)
         q_t = self._q_func(batch.observations, action, "none")[0]
         lam = self._alpha / (q_t.abs().mean()).detach()
@@ -221,7 +224,202 @@ class TD3PlusBCAugImpl(TD3Impl):
 
             extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
                           q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_coef * critic_reg_loss.item())
+        elif 'critic_reg_v2' in robust_type:
+            # label_type: ONLINE  Q(s,a)
+            #             TARGET r+ gamma*Qtarg(s',a'))
+            #             FUTURE  1/2* (Q(s,a)+r+ gamma*Qtarg(s',a'))
+            # qindex = [0,1]
 
+            batch, batch_aug0 = self.do_augmentation(batch, for_critic=True,q_index=0)
+            _ , batch_aug1 = self.do_augmentation(batch, for_critic=True,q_index=1)
+
+            with torch.no_grad():
+                q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
+                q1_pred = q_prediction[0].cpu().detach()
+                q2_pred = q_prediction[1].cpu().detach()
+
+                q_prediction_adv = self._q_func(batch_aug0.observations, batch_aug0.actions,
+                                                reduction="none")
+                q1_pred_adv_diff = (q_prediction_adv[0].cpu().detach() - q1_pred).numpy().mean()
+                q_prediction_adv = self._q_func(batch_aug1.observations, batch_aug1.actions,
+                                                reduction="none")
+
+                q2_pred_adv_diff = (q_prediction_adv[1].cpu().detach() - q2_pred).numpy().mean()
+                q1_pred = q1_pred.numpy().mean()
+                q2_pred = q2_pred.numpy().mean()
+
+            # TD3 BC loss
+            self._critic_optim.zero_grad()
+
+            q_tpn = self.compute_target(batch)  # Compute target for clean data
+
+            loss = self.compute_critic_loss(batch, q_tpn)
+
+            # My loss
+
+
+            with torch.no_grad():
+                gt_qval0,gt_qval1 = self._q_func(batch._observations, batch._actions, "none").detach()
+
+
+            q_func0 = self._q_func.q_funcs[0]
+            q_func1 = self._q_func.q_funcs[1]
+
+            
+            qval_adv0 = q_func0(batch_aug0._observations, batch_aug0._actions)
+            qval_adv1 = q_func1(batch_aug1._observations, batch_aug1._actions)
+
+            critic_reg_loss = ((qval_adv0 - gt_qval0) ** 2).mean() + \
+                              ((qval_adv1 - gt_qval1) ** 2).mean()
+            loss += critic_reg_coef * critic_reg_loss
+
+            loss.backward()
+            self._critic_optim.step()
+
+            extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
+                          q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_loss.item())
+
+        elif 'critic_reg_v3' in robust_type:
+
+            # label_type: ONLINE  Q(s,a)
+            #             TARGET r+ gamma*Qtarg(s',a'))
+            #             FUTURE  1/2* (Q(s,a)+r+ gamma*Qtarg(s',a'))
+            # qindex = [0,1]
+
+            batch, batch_aug0 = self.do_augmentation(batch, for_critic=True,q_index=0)
+            _ , batch_aug1 = self.do_augmentation(batch, for_critic=True,q_index=1)
+
+            with torch.no_grad():
+                q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
+                q1_pred = q_prediction[0].cpu().detach()
+                q2_pred = q_prediction[1].cpu().detach()
+
+                q_prediction_adv = self._q_func(batch_aug0.observations, batch_aug0.actions,
+                                                reduction="none")
+                q1_pred_adv_diff = (q_prediction_adv[0].cpu().detach() - q1_pred).numpy().mean()
+                q_prediction_adv = self._q_func(batch_aug1.observations, batch_aug1.actions,
+                                                reduction="none")
+
+                q2_pred_adv_diff = (q_prediction_adv[1].cpu().detach() - q2_pred).numpy().mean()
+                q1_pred = q1_pred.numpy().mean()
+                q2_pred = q2_pred.numpy().mean()
+
+            # TD3 BC loss
+            self._critic_optim.zero_grad()
+
+            q_tpn = self.compute_target(batch)  # Compute target for clean data
+
+            loss = self.compute_critic_loss(batch, q_tpn)
+
+            with torch.no_grad():
+                gt_qval0 = gt_qval1 = self.compute_target(batch)  # Compute target for clean data  # Take q[q_index]
+
+
+            
+            q_func0 = self._q_func.q_funcs[0]
+            q_func1 = self._q_func.q_funcs[1]
+
+            
+            loss_qval_adv0 = q_func0.compute_error(
+                observations=batch_aug0._observations,
+                actions= batch_aug0._actions,
+                rewards=batch_aug0._rewards,
+                target=gt_qval0,
+                terminals=batch_aug0._terminals,
+                gamma=self._gamma,
+                reduction="none",
+            )
+
+            loss_qval_adv1 = q_func1.compute_error(
+                observations=batch_aug1._observations,
+                actions= batch_aug1._actions,
+                rewards=batch_aug1._rewards,
+                target=gt_qval1,
+                terminals=batch_aug1._terminals,
+                gamma=self._gamma,
+                reduction="none",
+            )
+
+            critic_reg_loss = loss_qval_adv0.mean() + \
+                              loss_qval_adv1.mean()
+            loss += critic_reg_coef * critic_reg_loss
+
+            loss.backward()
+            self._critic_optim.step()
+
+            extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
+                          q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_loss.item())        
+
+        elif 'critic_reg_v4' in robust_type:
+
+            batch, batch_aug0 = self.do_augmentation(batch, for_critic=True,q_index=0)
+            _ , batch_aug1 = self.do_augmentation(batch, for_critic=True,q_index=1)
+
+            with torch.no_grad():
+                q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
+                q1_pred = q_prediction[0].cpu().detach()
+                q2_pred = q_prediction[1].cpu().detach()
+
+                q_prediction_adv = self._q_func(batch_aug0.observations, batch_aug0.actions,
+                                                reduction="none")
+                q1_pred_adv_diff = (q_prediction_adv[0].cpu().detach() - q1_pred).numpy().mean()
+                q_prediction_adv = self._q_func(batch_aug1.observations, batch_aug1.actions,
+                                                reduction="none")
+
+                q2_pred_adv_diff = (q_prediction_adv[1].cpu().detach() - q2_pred).numpy().mean()
+                q1_pred = q1_pred.numpy().mean()
+                q2_pred = q2_pred.numpy().mean()
+
+            # TD3 BC loss
+            self._critic_optim.zero_grad()
+
+            q_tpn = self.compute_target(batch)  # Compute target for clean data
+
+            loss = self.compute_critic_loss(batch, q_tpn)
+
+            with torch.no_grad():
+                gt_qval00, gt_qval01 = self._q_func(batch._observations, batch._actions, "none")# Take q[q_index]
+                gt_qval2 = self.compute_target(batch)
+                gt_qval0 =1/2*(gt_qval00+gt_qval2)
+                gt_qval0.detach()
+                gt_qval1 = 1/2*(gt_qval01+gt_qval2)
+                gt_qval1.detach()
+
+
+
+            q_func0 = self._q_func.q_funcs[0]
+            q_func1 = self._q_func.q_funcs[1]
+
+            
+            loss_qval_adv0 = q_func0.compute_error(
+                observations=batch_aug0._observations,
+                actions= batch_aug0._actions,
+                rewards=batch_aug0._rewards,
+                target=gt_qval0,
+                terminals=batch_aug0._terminals,
+                gamma=self._gamma,
+                reduction="none",
+            )
+
+            loss_qval_adv1 = q_func1.compute_error(
+                observations=batch_aug1._observations,
+                actions= batch_aug1._actions,
+                rewards=batch_aug1._rewards,
+                target=gt_qval1,
+                terminals=batch_aug1._terminals,
+                gamma=self._gamma,
+                reduction="none",
+            )
+
+            critic_reg_loss = loss_qval_adv0.mean() + \
+                              loss_qval_adv1.mean()
+            loss += critic_reg_coef * critic_reg_loss
+
+            loss.backward()
+            self._critic_optim.step()
+
+            extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
+                          q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_loss.item())
         else:
             q1_pred_adv_diff, q2_pred_adv_diff = 0.0, 0.0
             with torch.no_grad():
@@ -318,12 +516,11 @@ class TD3PlusBCAugImpl(TD3Impl):
 
         return loss.cpu().detach().numpy(), extra_logs
 
-    def do_augmentation(self, batch: TorchMiniBatch, for_critic=True):
+    def do_augmentation(self, batch: TorchMiniBatch, for_critic=True, q_index=0):
         """" NOTE: Assume obs, next_obs are already normalized """""
 
         batch_aug = copy.deepcopy(batch)
         # Transforming the copied batch
-
         assert self._transform in ['adversarial_training']
         #### Using PGD with Linf-norm
         epsilon = self._transform_params.get('epsilon', None)
@@ -332,7 +529,7 @@ class TD3PlusBCAugImpl(TD3Impl):
         attack_type = self._transform_params.get('attack_type', None)
         attack_type_for_actor = self._transform_params.get('attack_type_for_actor', None)
         optimizer = self._transform_params.get('optimizer', 'pgd')
-
+        
         if (attack_type_for_actor is not None) and (for_critic is False):
             # This attack is specified for attack actor
             attack_type = attack_type_for_actor
@@ -349,9 +546,9 @@ class TD3PlusBCAugImpl(TD3Impl):
                                   self._obs_min_norm, self._obs_max_norm)
             batch_aug._observations = adv_x
 
-            adv_x = random_attack(batch_aug._next_observations, epsilon,
-                                  self._obs_min_norm, self._obs_max_norm)
-            batch_aug._next_observations = adv_x
+            # adv_x = random_attack(batch_aug._next_observations, epsilon,
+            #                       self._obs_min_norm, self._obs_max_norm)
+            # batch_aug._next_observations = adv_x
 
         elif attack_type in ['critic_normal']:
             adv_x = critic_normal_attack(batch_aug._observations,
@@ -361,12 +558,12 @@ class TD3PlusBCAugImpl(TD3Impl):
                                          optimizer=optimizer)
             batch_aug._observations = adv_x
 
-            adv_x = critic_normal_attack(batch_aug._next_observations,
-                                         self._policy, self._q_func,
-                                         epsilon, num_steps, step_size,
-                                         self._obs_min_norm, self._obs_max_norm,
-                                         optimizer=optimizer)
-            batch_aug._next_observations = adv_x
+            # adv_x = critic_normal_attack(batch_aug._next_observations,
+            #                              self._policy, self._q_func,
+            #                              epsilon, num_steps, step_size,
+            #                              self._obs_min_norm, self._obs_max_norm,
+            #                              optimizer=optimizer)
+            # batch_aug._next_observations = adv_x
 
         elif attack_type in ['critic_mqd']:
             adv_x = critic_mqd_attack(batch_aug._observations,
@@ -385,13 +582,59 @@ class TD3PlusBCAugImpl(TD3Impl):
                                      optimizer=optimizer)
             batch_aug._observations = adv_x
 
-            adv_x = actor_mad_attack(batch_aug._next_observations,
-                                     self._policy, self._q_func,
-                                     epsilon, num_steps, step_size,
-                                     self._obs_min_norm, self._obs_max_norm,
-                                     optimizer=optimizer)
-            batch_aug._next_observations = adv_x
+            # adv_x = actor_mad_attack(batch_aug._next_observations,
+            #                          self._policy, self._q_func,
+            #                          epsilon, num_steps, step_size,
+            #                          self._obs_min_norm, self._obs_max_norm,
+            #                          optimizer=optimizer)
+            # batch_aug._next_observations = adv_x
+        elif attack_type in ['critic_mqd_v2',]:
+            with torch.no_grad():
+                gt_qval = self._q_func(batch_aug._observations, batch_aug._actions, "none")[q_index].detach().clone()  # Take q[q_index]
+                
+            adv_x = critic_mqd_attackV2(batch_aug._observations,
+                                          batch_aug._actions,
+                                          self._policy, self._q_func, gt_qval,q_index,
+                                          epsilon, num_steps, step_size,
+                                          self._obs_min, self._obs_max,
+                                          self._scaler)
+            batch_aug._observations = adv_x    
+        elif attack_type in ['critic_mqd_v3',]:
+                
+            with torch.no_grad():
+                next_action = self._targ_policy(batch_aug.next_observations)
+                # Compute target for clean data  # Take q[q_index]
+                gt_qval = self._targ_q_func.compute_target(
+                    batch_aug.next_observations,
+                    next_action,
+                    reduction="min",
+                ).clone()
 
+            adv_x = critic_mqd_attackV2(batch_aug._observations,
+                                        batch_aug._actions,
+                                        self._policy, self._q_func, gt_qval,q_index,
+                                        epsilon, num_steps, step_size,
+                                        self._obs_min, self._obs_max,
+                                        self._scaler)
+            batch_aug._observations = adv_x    
+        elif attack_type in ['critic_mqd_v4',]:
+            with torch.no_grad():
+                gt_qval1 = self._q_func(batch_aug._observations, batch_aug._actions, "none")[q_index]  # Take q[q_index]
+                next_action = self._targ_policy(batch_aug.next_observations)
+                # Compute target for clean data  # Take q[q_index]
+                gt_qval2 = self._targ_q_func.compute_target(
+                    batch_aug.next_observations,
+                    next_action,
+                    reduction="min",
+                )
+                gt_qval =1/2*(gt_qval1+gt_qval2).clone()
+            adv_x = critic_mqd_attackV2(batch_aug._observations,
+                                        batch_aug._actions,
+                                        self._policy, self._q_func, gt_qval,q_index,
+                                        epsilon, num_steps, step_size,
+                                        self._obs_min, self._obs_max,
+                                        self._scaler)
+            batch_aug._observations = adv_x            
         else:
             raise NotImplementedError
 
