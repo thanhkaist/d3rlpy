@@ -117,6 +117,8 @@ def train_single_env(
     show_progress: bool = True,
     tensorboard_dir: Optional[str] = None,
     timelimit_aware: bool = True,
+    wandb_project: str="BASE",
+    use_wandb: bool = True,
     callback: Optional[Callable[[AlgoProtocol, int, int], None]] = None,
 ) -> None:
     """Start training loop of online deep reinforcement learning.
@@ -164,6 +166,8 @@ def train_single_env(
         verbose=verbose,
         tensorboard_dir=tensorboard_dir,
         with_timestamp=with_timestamp,
+        wandb_project=wandb_project,
+        use_wandb=use_wandb
     )
     algo.set_active_logger(logger)
 
