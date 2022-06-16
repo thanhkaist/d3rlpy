@@ -16,7 +16,8 @@ from d3rlpy.adversarial_training.utility import make_checkpoint_list, copy_file,
 from d3rlpy.adversarial_training.eval_utility import (
     eval_clean_env,
     eval_env_under_attack,
-    eval_multiprocess_wrapper
+    eval_multiprocess_wrapper,
+    train_sarsa
 )
 
 
@@ -29,7 +30,7 @@ parser.add_argument('--n_eval_episodes', type=int, default=50)
 SUPPORTED_TRANSFORMS = ['random', 'adversarial_training']
 parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
 
-SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad']
+SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad', 'sarsa']
 parser.add_argument('--attack_type', type=str, default='random', choices=SUPPORTED_ATTACKS)
 parser.add_argument('--attack_epsilon', type=float, default=None)
 parser.add_argument('--attack_type_list', type=str, default='random', nargs='+')
@@ -55,7 +56,8 @@ args = parser.parse_args()
 ATTACK_ITERATION=dict(
     random=1,
     critic_normal=5,
-    actor_mad=5
+    actor_mad=5,
+    sarsa=5
 )
 
 
@@ -161,6 +163,12 @@ def main(args):
         print("===> Eval checkpoint: %s" % (checkpoint))
         start = time.time()
         for n, attack_type in enumerate(args.attack_type_list):
+            if attack_type in ['sarsa']:
+                td3 = train_sarsa(td3, env, checkpoint)
+            elif 'sarsa' in args.attack_type_list:
+                # This is required to override previous sarsa checkpoint (if loaded)
+                td3.load_model(checkpoint)
+
             for r, attack_epsilon in enumerate(args.attack_epsilon_list):
                 args.disable_clean = not (r == 0) or not (n == 0)
                 _, _norm_score, _, _norm_score_attack = \
