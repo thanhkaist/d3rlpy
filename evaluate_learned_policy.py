@@ -11,7 +11,7 @@ from torch import multiprocessing as mp
 import pandas as pd
 import numpy as np
 
-
+from d3rlpy.preprocessing.scalers import StandardScaler
 from d3rlpy.adversarial_training.utility import make_checkpoint_list, copy_file, EvalLogger
 from d3rlpy.adversarial_training.eval_utility import (
     eval_clean_env,
@@ -49,6 +49,8 @@ parser.add_argument('--mp', action='store_true')
 parser.add_argument('--n_processes', type=int, default=5)
 
 parser.add_argument('--eval_logdir', type=str, default='eval_results')
+
+parser.add_argument('--online_rl', action='store_true')
 args = parser.parse_args()
 
 
@@ -123,14 +125,31 @@ def main(args):
     d3rlpy.seed(args.seed)
     env.seed(args.seed)
 
-    ### Initialize algorithm
-    td3 = d3rlpy.algos.TD3PlusBC(scaler="standard", use_gpu=args.gpu, env_name=args.dataset)
+    if args.online_rl:
+        env_name = args.dataset.split('-')[0]
 
-    ### Convert dataset to list of transitions to compute mean & std
-    transitions = []
-    for episode in dataset.episodes:
-        transitions += episode.transitions
-    td3._scaler.fit(transitions)  # Compute mean & std of dataset
+        dataset1, _ = d3rlpy.datasets.get_dataset('{}-random-v0'.format(env_name))
+        dataset2, _ = d3rlpy.datasets.get_dataset('{}-medium-v0'.format(env_name))
+        dataset3, _ = d3rlpy.datasets.get_dataset('{}-medium-replay-v0'.format(env_name))
+        dataset4, _ = d3rlpy.datasets.get_dataset('{}-expert-v0'.format(env_name))
+
+        dataset1.extend(dataset2)
+        dataset1.extend(dataset3)
+        dataset1.extend(dataset4)
+
+        scaler = StandardScaler(dataset1)
+        td3 = d3rlpy.algos.TD3PlusBC(scaler=scaler, use_gpu=args.gpu, env_name=args.dataset)
+
+    else:
+        ### Initialize algorithm
+        td3 = d3rlpy.algos.TD3PlusBC(scaler="standard", use_gpu=args.gpu, env_name=args.dataset)
+
+        ### Convert dataset to list of transitions to compute mean & std
+        transitions = []
+        for episode in dataset.episodes:
+            transitions += episode.transitions
+        td3._scaler.fit(transitions)  # Compute mean & std of dataset
+
 
     td3.build_with_env(env)  # Create policy/critic for env, must be performed after fitting scaler
 
