@@ -499,7 +499,31 @@ class TD3PlusBCAugImpl(TD3Impl):
 
             extra_logs = (actor_loss.cpu().detach().numpy(), bc_loss.cpu().detach().numpy(),
                           action_reg_loss)
+        elif ('critic_reg_v2' in robust_type) or ('critic_reg_v3' in robust_type) or ('critic_reg_v4' in robust_type):
+            actor_reg_coef = self._transform_params.get('actor_reg_coef', 0)
+            self._transform_params['attack_type_for_actor'] = "actor_mad"
 
+            batch, batch_aug = self.do_augmentation(batch, for_critic=False)
+
+            # Q function should be inference mode for stability
+            self._q_func.eval()
+
+            self._actor_optim.zero_grad()
+
+            loss, actor_loss, bc_loss = self.compute_actor_loss(batch)
+
+            if actor_reg_coef > 0:
+                action_reg_loss =  ((self._policy(batch_aug.observations) - batch.actions) ** 2).mean()
+                loss += actor_reg_coef * action_reg_loss
+            else:
+                action_reg_loss = 0
+
+            loss.backward()
+            self._actor_optim.step()
+
+            action_reg_loss = action_reg_loss.item() if action_reg_loss > 0 else 0
+            extra_logs = (actor_loss.cpu().detach().numpy(), bc_loss.cpu().detach().numpy(),
+                          action_reg_loss)
         else:
 
             # Q function should be inference mode for stability
@@ -596,7 +620,7 @@ class TD3PlusBCAugImpl(TD3Impl):
                                           batch_aug._actions,
                                           self._policy, self._q_func, gt_qval,q_index,
                                           epsilon, num_steps, step_size,
-                                          self._obs_min, self._obs_max,
+                                          self._obs_min_norm, self._obs_max_norm,
                                           self._scaler)
             batch_aug._observations = adv_x    
         elif attack_type in ['critic_mqd_v3',]:
@@ -614,7 +638,7 @@ class TD3PlusBCAugImpl(TD3Impl):
                                         batch_aug._actions,
                                         self._policy, self._q_func, gt_qval,q_index,
                                         epsilon, num_steps, step_size,
-                                        self._obs_min, self._obs_max,
+                                        self._obs_min_norm, self._obs_max_norm,
                                         self._scaler)
             batch_aug._observations = adv_x    
         elif attack_type in ['critic_mqd_v4',]:
@@ -632,7 +656,7 @@ class TD3PlusBCAugImpl(TD3Impl):
                                         batch_aug._actions,
                                         self._policy, self._q_func, gt_qval,q_index,
                                         epsilon, num_steps, step_size,
-                                        self._obs_min, self._obs_max,
+                                        self._obs_min_norm, self._obs_max_norm,
                                         self._scaler)
             batch_aug._observations = adv_x            
         else:
