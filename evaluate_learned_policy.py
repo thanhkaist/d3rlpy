@@ -1,4 +1,5 @@
 import argparse
+from turtle import clear
 import gym
 import time
 import copy
@@ -162,7 +163,10 @@ def main(args):
         start = time.time()
         for n, attack_type in enumerate(args.attack_type_list):
             for r, attack_epsilon in enumerate(args.attack_epsilon_list):
-                args.disable_clean = not (r == 0) or not (n == 0)
+                # args.disable_clean = not (r == 0) or not (n == 0) # bug here
+                # not evaluate clean if r and n !=0
+                if r!=0:
+                    args.disable_clean = True
                 _, _norm_score, _, _norm_score_attack = \
                     eval_func(td3, env, writer, attack_type, attack_epsilon, args)
 
