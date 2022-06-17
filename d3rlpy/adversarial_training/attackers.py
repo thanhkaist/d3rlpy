@@ -246,6 +246,8 @@ def critic_mqd_attackV2(x, a, _policy, _q_func,gt_qval,qindex, epsilon, num_step
                       scaler=None, optimizer="SGLD"):
     """" NOTE: x must be normalized """""
     assert isinstance(x, torch.Tensor), "input x must be tensor."
+    epsilon = np.float32(epsilon)
+    # import pdb; pdb.set_trace()
     ori_state_tensor = x.detach().clone()
                 # already normalized
                                  # Add noise in `normalized space`
@@ -278,7 +280,7 @@ def critic_mqd_attackV2(x, a, _policy, _q_func,gt_qval,qindex, epsilon, num_step
         step_eps = epsilon/num_steps
         # upper and lower bounds for clipping
         adv_ub = ori_state_tensor + epsilon
-        adv_lb = ori_state_tensor - epsilon
+        adv_lb = ori_state_tensor -epsilon
         # add uniform noise beween +/- scaled_robust_eps
         # SGLD noise factor. We set (inverse) beta=1e-5 as gradients are relatively small here.
         beta = 1e-5
@@ -289,10 +291,14 @@ def critic_mqd_attackV2(x, a, _policy, _q_func,gt_qval,qindex, epsilon, num_step
         # and clip into the upper and lower bounds (not necessary for now as we use uniform noise)
         # adv_phi = torch.max(adv_phi, adv_lb)
         # adv_phi = torch.min(adv_phi, adv_ub)
+        
+        inner_loss = []
         for i in range(num_steps):
             adv_x.requires_grad = True
             # Find a nearby state adv_phi that maximize the difference
             adv_loss = (_q_func(adv_x, a, "none")[qindex] - gt_qval).pow(2).mean()
+
+            inner_loss.append(adv_loss.detach().cpu())
             # Need to clear gradients before the backward() for policy_loss
             grad = torch.autograd.grad(adv_loss, adv_x, retain_graph=False, create_graph=False)[0]
             # Reduce noise at every step. We start at step 2.
@@ -311,4 +317,7 @@ def critic_mqd_attackV2(x, a, _policy, _q_func,gt_qval,qindex, epsilon, num_step
             # This clamp is performed in ORIGINAL scale
             adv_x = clamp(adv_x, _obs_min, _obs_max).detach()
     perturbed_state = adv_x
+    assert np.max(np.linalg.norm(perturbed_state.cpu()-ori_state_tensor.cpu(),np.inf,1)) < (epsilon+ 1e-4), f"Perturbed state go out of epsilon {np.max(np.linalg.norm(perturbed_state.cpu()-ori_state_tensor.cpu(),np.inf,1))}"
+    with open(f"{optimizer}.txt","a") as f:
+        f.write(",".join([str(i) for i in inner_loss])+"\n")
     return perturbed_state
