@@ -51,9 +51,9 @@ def main():
     parser.add_argument('--step_size', type=float, default=0.01)
 
     parser.add_argument('--eps_scheduler', action='store_true')
-    parser.add_argument('--eps_scheduler_start', type=float, default=0)
+    parser.add_argument('--eps_start_vale', type=float, default=1e-3, help="start value")
     parser.add_argument('--eps_scheduler_steps', type=float, default=300000)
-    parser.add_argument('--eps_scheduler_start_step', type=float, default=200000)
+    parser.add_argument('--eps_start_step', type=float, default=200000)
 
     parser.add_argument('--critic_reg_coef', type=float, default=0.1)
     parser.add_argument('--actor_reg_coef', type=float, default=0.1)
@@ -106,10 +106,10 @@ def main():
         optimizer=args.optimizer,
         epsilon_scheduler=dict(
             enable=args.eps_scheduler,
-            start=args.eps_scheduler_start,
+            start=args.eps_start_vale,
             end=args.epsilon,
             steps=args.eps_scheduler_steps,
-            start_step=args.eps_scheduler_start_step,
+            start_step=args.eps_start_step,
         ),
     )
     td3 = d3rlpy.algos.TD3PlusBCAug(
