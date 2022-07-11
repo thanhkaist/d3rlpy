@@ -81,11 +81,11 @@ class TD3PlusBCAugImpl(TD3Impl):
         self._transform = transform
         self._transform_params = transform_params
 
-        if self._transform_params['epsilon_scheduler']['eps_scheduler']:
-            start_val = self._transform_params['epsilon_scheduler']['eps_scheduler_start']
+        if self._transform_params['epsilon_scheduler']['enable']:
+            start_val = self._transform_params['epsilon_scheduler']['start']
             end_val = self._transform_params['epsilon_scheduler']['end']
-            n_steps = self._transform_params['epsilon_scheduler']['eps_scheduler_steps']
-            start_step = self._transform_params['epsilon_scheduler']['eps_start_step']
+            n_steps = self._transform_params['epsilon_scheduler']['steps']
+            start_step = self._transform_params['epsilon_scheduler']['start_step']
             self.scheduler = LinearSchedule(start_val=start_val, end_val=end_val,
                                             n_steps=n_steps, start_step=start_step)
         else:
