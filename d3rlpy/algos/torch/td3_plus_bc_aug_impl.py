@@ -17,6 +17,7 @@ from .td3_impl import TD3Impl
 from ...adversarial_training import (
     clamp,
     ENV_OBS_RANGE,
+    LinearSchedule,
 )
 from ...adversarial_training.attackers import (
     random_attack,
@@ -79,6 +80,16 @@ class TD3PlusBCAugImpl(TD3Impl):
 
         self._transform = transform
         self._transform_params = transform_params
+
+        if self._transform_params['epsilon_scheduler']['eps_scheduler']:
+            start_val = self._transform_params['epsilon_scheduler']['eps_scheduler_start']
+            end_val = self._transform_params['epsilon_scheduler']['end']
+            n_steps = self._transform_params['epsilon_scheduler']['eps_scheduler_steps']
+            start_step = self._transform_params['epsilon_scheduler']['eps_start_step']
+            self.scheduler = LinearSchedule(start_val=start_val, end_val=end_val,
+                                            n_steps=n_steps, start_step=start_step)
+        else:
+            self.scheduler = None
 
         env_name_ = env_name.split('-')
         self.env_name = env_name_[0] + '-' + env_name_[-1]
@@ -151,6 +162,9 @@ class TD3PlusBCAugImpl(TD3Impl):
         robust_type = self._transform_params.get('robust_type', None)
         critic_reg_coef = self._transform_params.get('critic_reg_coef', 0)
 
+        # Override the value of epsilon by using scheduler
+        epsilon = self.scheduler() if self.scheduler is not None else None
+
         if 'critic_drq' in robust_type:
             batch, batch_aug = self.do_augmentation(batch, for_critic=True)
 
@@ -180,20 +194,14 @@ class TD3PlusBCAugImpl(TD3Impl):
             extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
                           q1_pred_adv_diff, q2_pred_adv_diff)
         elif 'critic_reg' in robust_type:
-            batch, batch_aug = self.do_augmentation(batch, for_critic=True)
+
+            batch, batch_aug = self.do_augmentation(batch, for_critic=True, epsilon=epsilon)
 
             with torch.no_grad():
                 # This is for logging
                 q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
-                q1_pred = q_prediction[0]
-                q2_pred = q_prediction[1]
-
-                q_prediction_adv = self._q_func(batch_aug.observations, batch_aug.actions, reduction="none")
-                q1_pred_adv_diff = (q_prediction_adv[0] - q1_pred).cpu().numpy().mean()
-                q2_pred_adv_diff = (q_prediction_adv[1] - q2_pred).cpu().numpy().mean()
-                q1_pred = q1_pred.cpu().numpy().mean()
-                q2_pred = q2_pred.cpu().numpy().mean()
-
+                q1_pred = q_prediction[0].cpu().detach().numpy().mean()
+                q2_pred = q_prediction[1].cpu().detach().numpy().mean()
 
             with torch.no_grad():
                 current_action = self._policy(batch.observations)
@@ -219,8 +227,13 @@ class TD3PlusBCAugImpl(TD3Impl):
             loss.backward()
             self._critic_optim.step()
 
+            # Compute the difference w.r.t. the current policy applied on states
+            q1_pred_adv_diff = (qval_adv[0] - gt_qval[0]).detach().cpu().numpy().mean()
+            q2_pred_adv_diff = (qval_adv[1] - gt_qval[1]).detach().cpu().numpy().mean()
+
             extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
-                          q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_coef * critic_reg_loss.item())
+                          q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_coef * critic_reg_loss.item(),
+                          epsilon)
 
         else:
             q1_pred_adv_diff, q2_pred_adv_diff = 0.0, 0.0
@@ -318,7 +331,7 @@ class TD3PlusBCAugImpl(TD3Impl):
 
         return loss.cpu().detach().numpy(), extra_logs
 
-    def do_augmentation(self, batch: TorchMiniBatch, for_critic=True):
+    def do_augmentation(self, batch: TorchMiniBatch, for_critic=True, epsilon=None):
         """" NOTE: Assume obs, next_obs are already normalized """""
 
         batch_aug = copy.deepcopy(batch)
@@ -326,7 +339,7 @@ class TD3PlusBCAugImpl(TD3Impl):
 
         assert self._transform in ['adversarial_training']
         #### Using PGD with Linf-norm
-        epsilon = self._transform_params.get('epsilon', None)
+        epsilon = self._transform_params.get('epsilon', None) if epsilon is None else epsilon
         num_steps = self._transform_params.get('num_steps', None)
         step_size = self._transform_params.get('step_size', None)
         attack_type = self._transform_params.get('attack_type', None)
@@ -341,10 +354,6 @@ class TD3PlusBCAugImpl(TD3Impl):
                (step_size is not None) and (attack_type is not None)
 
         if attack_type in ['random']:
-            assert self._transform_params is not None, "Cannot find params for random transform."
-            epsilon = self._transform_params.get('epsilon', None)
-            assert epsilon is not None, "Please provide the epsilon for random transform."
-
             adv_x = random_attack(batch_aug._observations, epsilon,
                                   self._obs_min_norm, self._obs_max_norm)
             batch_aug._observations = adv_x
@@ -361,12 +370,12 @@ class TD3PlusBCAugImpl(TD3Impl):
                                          optimizer=optimizer)
             batch_aug._observations = adv_x
 
-            adv_x = critic_normal_attack(batch_aug._next_observations,
-                                         self._policy, self._q_func,
-                                         epsilon, num_steps, step_size,
-                                         self._obs_min_norm, self._obs_max_norm,
-                                         optimizer=optimizer)
-            batch_aug._next_observations = adv_x
+            # adv_x = critic_normal_attack(batch_aug._next_observations,
+            #                              self._policy, self._q_func,
+            #                              epsilon, num_steps, step_size,
+            #                              self._obs_min_norm, self._obs_max_norm,
+            #                              optimizer=optimizer)
+            # batch_aug._next_observations = adv_x
 
         elif attack_type in ['critic_mqd']:
             adv_x = critic_mqd_attack(batch_aug._observations,
