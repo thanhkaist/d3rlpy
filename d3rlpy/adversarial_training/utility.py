@@ -292,14 +292,14 @@ class EvalLogger():
 
 
 class LinearSchedule:
-    def __init__(self, start, end=None, steps=None, start_step=1):
-        if end is None:
-            end = start
-            steps = 1
-        self.inc = (end - start) / float(steps)
-        self.current = start
-        self.end = end
-        if end > start:
+    def __init__(self, start_val, end_val=None, n_steps=None, start_step=1):
+        if end_val is None:
+            end_val = start_val
+            n_steps = 1
+        self.inc = (end_val - start_val) / float(n_steps)
+        self.current = start_val
+        self.end_val = end_val
+        if end_val > start_val:
             self.bound = min
         else:
             self.bound = max
@@ -310,7 +310,7 @@ class LinearSchedule:
         val = self.current
         self.total_steps += 1
         if self.total_steps >= self.start_step:
-            self.current = self.bound(self.current + self.inc * steps, self.end)
+            self.current = self.bound(self.current + self.inc * steps, self.end_val)
         return val
 
 
