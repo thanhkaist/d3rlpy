@@ -8,7 +8,7 @@ import torch
 from torch import multiprocessing as mp
 
 import numpy as np
-from .utility import tensor
+from .utility import tensor, make_bound_for_network
 from .attackers import random_attack, critic_normal_attack, actor_mad_attack
 
 def make_sure_type_is_float32(x):
@@ -80,7 +80,7 @@ def eval_env_under_attack(params):
                 algo._impl._obs_min_norm, algo._impl._obs_max_norm,
             )
 
-        elif type in ['critic_normal']:
+        elif type in ['critic_normal', 'sarsa']:
             perturb_state = critic_normal_attack(
                 state_tensor, algo._impl._policy, algo._impl._q_func,
                 attack_epsilon, attack_iteration, attack_stepsize,
@@ -159,26 +159,35 @@ def eval_multiprocess_wrapper(algo, func, env_list, params):
     return unorm_score
 
 
-# def train_sarsa(algo, env, buffer=None, n_sarsa_steps=1000, n_warmups=1000):
-#
-#     logdir_sarsa = os.path.join(args.ckpt[:args.ckpt.rfind('/')], 'sarsa_model')
-#     model_path = os.path.join(logdir_sarsa, 'sarsa_ntrains{}_warmup{}.pt'.format(n_sarsa_steps, n_warmups))
-#
-#
-#     algo = make_bound_for_network(algo)
-#
-#     # We need to re-initialize the critic, not using the old one (following SA-DDPG)
-#     algo._impl._q_func.reset_weight()
-#     algo._impl._targ_q_func.reset_weight()
-#
-#     if not os.path.exists(logdir_sarsa):
-#         os.mkdir(logdir_sarsa)
-#     if os.path.exists(model_path):
-#         print('Found pretrained SARSA: ', model_path)
-#         algo.load_model(model_path)
-#     else:
-#         print('Not found pretrained SARSA: ', model_path)
-#         algo.fit_sarsa(env, buffer, n_sarsa_steps, n_warmups)
-#         algo.save_model(model_path)
-#
-#     return algo
+import torch.nn as nn
+def train_sarsa(algo, env, ckpt, buffer=None, n_sarsa_steps=150000, n_warmups=100000):
+
+    # ckpt is in format: /path/to/model_500000.pt
+    logdir_sarsa = os.path.join(ckpt[:ckpt.rfind('/')], 'sarsa_model')
+    model_path = os.path.join(logdir_sarsa, 'sarsa_ntrains{}_warmup{}.pt'.format(n_sarsa_steps, n_warmups))
+
+
+    # algo = make_bound_for_network(algo)
+
+    def weight_reset(m):
+        if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+            m.reset_parameters()
+
+    # We need to re-initialize the critic, not using the old one (following SA-DDPG)
+    # algo._impl._q_func.reset_weight()
+    # algo._impl._targ_q_func.reset_weight()
+
+    algo._impl._q_func.apply(weight_reset)
+    algo._impl._targ_q_func.apply(weight_reset)
+
+    if not os.path.exists(logdir_sarsa):
+        os.mkdir(logdir_sarsa)
+    if os.path.exists(model_path):
+        print('Found pretrained SARSA: ', model_path)
+        algo.load_model(model_path)
+    else:
+        print('Not found pretrained SARSA: ', model_path)
+        algo.fit_sarsa(env, buffer, n_sarsa_steps, n_warmups)
+        algo.save_model(model_path)
+
+    return algo
