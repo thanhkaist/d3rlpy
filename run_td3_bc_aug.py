@@ -37,7 +37,7 @@ def main():
 
     SUPPORTED_TRANSFORMS = ['adversarial_training']
     SUPPORTED_ATTACKS = ['random', 'critic_normal', 'actor_mad', 'critic_mqd']
-    SUPPORTED_ROBUSTS = ['actor_mad', 'critic_reg', 'critic_drq', 'actor_on_adv']
+    SUPPORTED_ROBUSTS = ['actor_mad', 'critic_reg', 'critic_drq', 'actor_on_adv', 'actor_contrast']
     SUPPORTED_OPTIMS = ['pgd', 'sgld']
 
     parser.add_argument('--transform', type=str, default='random', choices=SUPPORTED_TRANSFORMS)
@@ -61,6 +61,8 @@ def main():
 
     parser.add_argument('--finetune', action='store_true')
     parser.add_argument('--ckpt', type=str, default='.')
+
+    parser.add_argument('--backup_file', action='store_true')
 
     args = parser.parse_args()
 
@@ -112,9 +114,15 @@ def main():
             start_step=args.eps_start_step,
         ),
     )
+
+    # encoder = d3rlpy.models.encoders.VectorEncoderFactory([256, 256, 256, 256, 256])
+    encoder = d3rlpy.models.encoders.VectorEncoderFactory([256, 256])
+
     td3 = d3rlpy.algos.TD3PlusBCAug(
         actor_learning_rate=3e-4,
         critic_learning_rate=3e-4,
+        actor_encoder_factory=encoder,
+        critic_encoder_factory=encoder,
         batch_size=256,
         target_smoothing_sigma=0.2,
         target_smoothing_clip=0.5,
@@ -157,7 +165,8 @@ def main():
         use_wandb=args.wandb,
         experiment_name=f"{ENV_NAME_MAPPING[args.dataset]}_{args.exp}",
         finetune=args.finetune,
-        checkpoint=args.ckpt
+        checkpoint=args.ckpt,
+        backup_file=True
     )
 
 

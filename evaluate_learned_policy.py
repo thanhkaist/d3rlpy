@@ -141,8 +141,14 @@ def main(args):
         td3 = d3rlpy.algos.TD3PlusBC(scaler=scaler, use_gpu=args.gpu, env_name=args.dataset)
 
     else:
+        # encoder = d3rlpy.models.encoders.VectorEncoderFactory([256, 256, 256])
+        encoder = d3rlpy.models.encoders.VectorEncoderFactory([256, 256, 256, 256, 256])
+
         ### Initialize algorithm
-        td3 = d3rlpy.algos.TD3PlusBC(scaler="standard", use_gpu=args.gpu, env_name=args.dataset)
+        td3 = d3rlpy.algos.TD3PlusBC(scaler="standard", use_gpu=args.gpu, env_name=args.dataset,
+                                     actor_encoder_factory=encoder,
+                                     critic_encoder_factory=encoder,
+                                     )
 
         ### Convert dataset to list of transitions to compute mean & std
         transitions = []

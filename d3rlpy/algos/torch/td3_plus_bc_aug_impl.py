@@ -100,6 +100,10 @@ class TD3PlusBCAugImpl(TD3Impl):
 
         self._obs_max_norm = self._obs_min_norm = None
 
+        # Components for contrastive loss
+        self.W = torch.nn.Parameter(torch.rand(256, 256))   # output size of intermediate layer
+        self._cpc_optim = None
+
     def init_range_of_norm_obs(self):
         self._obs_max_norm = self.scaler.transform(
             torch.Tensor(ENV_OBS_RANGE[self.env_name]['max']).to('cuda:{}'.format(
@@ -162,8 +166,10 @@ class TD3PlusBCAugImpl(TD3Impl):
         robust_type = self._transform_params.get('robust_type', None)
         critic_reg_coef = self._transform_params.get('critic_reg_coef', 0)
 
+        # Temporarily get epsilon here rather than inside do_augmentation()
+        epsilon = self._transform_params.get('epsilon', None)
         # Override the value of epsilon by using scheduler
-        epsilon = self.scheduler() if self.scheduler is not None else None
+        epsilon = self.scheduler() if self.scheduler is not None else epsilon
 
         if 'critic_drq' in robust_type:
             batch, batch_aug = self.do_augmentation(batch, for_critic=True)
@@ -195,7 +201,10 @@ class TD3PlusBCAugImpl(TD3Impl):
                           q1_pred_adv_diff, q2_pred_adv_diff)
         elif 'critic_reg' in robust_type:
 
-            batch, batch_aug = self.do_augmentation(batch, for_critic=True, epsilon=epsilon)
+            if epsilon > 1e-6:
+                batch, batch_aug = self.do_augmentation(batch, for_critic=True, epsilon=epsilon)
+            else:
+                batch_aug = None
 
             with torch.no_grad():
                 # This is for logging
@@ -203,11 +212,12 @@ class TD3PlusBCAugImpl(TD3Impl):
                 q1_pred = q_prediction[0].cpu().detach().numpy().mean()
                 q2_pred = q_prediction[1].cpu().detach().numpy().mean()
 
-            with torch.no_grad():
-                current_action = self._policy(batch.observations)
-                gt_qval = self._q_func(batch.observations, current_action, "none").detach()
+            if batch_aug is not None:
+                with torch.no_grad():
+                    current_action = self._policy(batch.observations)
+                    gt_qval = self._q_func(batch.observations, current_action, "none").detach()
 
-                current_action_adv = self._policy(batch_aug.observations).detach()
+                    current_action_adv = self._policy(batch_aug.observations).detach()
 
 
             self._critic_optim.zero_grad()
@@ -216,24 +226,31 @@ class TD3PlusBCAugImpl(TD3Impl):
 
             loss = self.compute_critic_loss(batch, q_tpn)
 
-            # Compute regularization
-            qval_adv = self._q_func(batch.observations, current_action_adv, "none")
-            q1_reg_loss = F.mse_loss(qval_adv[0], gt_qval[0])
-            q2_reg_loss = F.mse_loss(qval_adv[1], gt_qval[1])
-            critic_reg_loss = (q1_reg_loss + q2_reg_loss) / 2
+            if batch_aug is not None:
+                # Compute regularization
+                qval_adv = self._q_func(batch.observations, current_action_adv, "none")
+                q1_reg_loss = F.mse_loss(qval_adv[0], gt_qval[0])
+                q2_reg_loss = F.mse_loss(qval_adv[1], gt_qval[1])
+                critic_reg_loss = (q1_reg_loss + q2_reg_loss) / 2
 
-            loss += critic_reg_coef * critic_reg_loss
+                loss += critic_reg_coef * critic_reg_loss
+
 
             loss.backward()
             self._critic_optim.step()
 
-            # Compute the difference w.r.t. the current policy applied on states
-            q1_pred_adv_diff = (qval_adv[0] - gt_qval[0]).detach().cpu().numpy().mean()
-            q2_pred_adv_diff = (qval_adv[1] - gt_qval[1]).detach().cpu().numpy().mean()
+            if batch_aug is not None:
+                # Compute the difference w.r.t. the current policy applied on states
+                q1_pred_adv_diff = (qval_adv[0] - gt_qval[0]).detach().cpu().numpy().mean()
+                q2_pred_adv_diff = (qval_adv[1] - gt_qval[1]).detach().cpu().numpy().mean()
 
-            extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
-                          q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_coef * critic_reg_loss.item(),
-                          epsilon)
+                extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
+                              q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_coef * critic_reg_loss.item(),
+                              epsilon)
+            else:
+                extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
+                              0.0, 0.0, 0.0,
+                              epsilon)
 
         else:
             q1_pred_adv_diff, q2_pred_adv_diff = 0.0, 0.0
@@ -283,9 +300,94 @@ class TD3PlusBCAugImpl(TD3Impl):
                 action_reg_loss = 0
 
             loss.backward()
+            # self._actor_optim.step()
+
+            action_reg_loss = action_reg_loss.item() if action_reg_loss > 0 else 0
+            extra_logs = (actor_loss.cpu().detach().numpy(), bc_loss.cpu().detach().numpy(),
+                          action_reg_loss)
+        elif 'actor_contrast' == robust_type:
+            actor_reg_coef = self._transform_params.get('actor_reg_coef', 0)
+            temperature = self._transform_params.get('temperature', 1.0)
+
+            batch, batch_aug = self.do_augmentation(batch, for_critic=False)
+
+            # Q function should be inference mode for stability
+            self._q_func.eval()
+
+            self._actor_optim.zero_grad()
+
+            loss, actor_loss, bc_loss = self.compute_actor_loss(batch)
+
+            if actor_reg_coef > 0:
+                with torch.no_grad():
+                    z_a = self._targ_policy._encoder(batch.observations).detach()
+
+                # Mixture of perturbed states -> mitigate the difference
+                # alpha = 0.5
+                # input_obs = alpha * batch.observations + (1 - alpha) * batch_aug.observations
+                # z_pos = self._policy._encoder(input_obs)
+                z_pos = self._policy._encoder(batch_aug.observations)
+
+                # TODO: perform contrastive loss
+                logits = torch.matmul(z_a, z_pos.T)
+                logits = logits - torch.max(logits, 1)[0][:, None]
+
+                labels = torch.arange(logits.shape[0]).long().to(batch.device)
+                _nce_loss = F.cross_entropy(logits, labels)
+
+                action_reg_loss = _nce_loss
+                loss += actor_reg_coef * action_reg_loss
+            else:
+                action_reg_loss = 0
+
+            loss.backward()
             self._actor_optim.step()
 
             action_reg_loss = action_reg_loss.item() if action_reg_loss > 0 else 0
+            extra_logs = (actor_loss.cpu().detach().numpy(), bc_loss.cpu().detach().numpy(),
+                          action_reg_loss)
+
+        elif 'actor_contrast_v1' == robust_type:
+            # Alternate update between actor and robustness optimizing
+            actor_reg_coef = self._transform_params.get('actor_reg_coef', 0)
+            temperature = self._transform_params.get('temperature', 1.0)
+
+            batch, batch_aug = self.do_augmentation(batch, for_critic=False)
+
+            # Q function should be inference mode for stability
+            self._q_func.eval()
+
+            self._actor_optim.zero_grad()
+
+            loss, actor_loss, bc_loss = self.compute_actor_loss(batch)
+
+            loss.backward()
+            self._actor_optim.step()
+
+            if actor_reg_coef > 0:
+                # self._cpc_optim.zero_grad()
+                self._actor_optim.zero_grad()
+
+                with torch.no_grad():
+                    z_a = self._targ_policy._encoder(batch.observations).detach()
+
+                z_pos = self._policy._encoder(batch_aug.observations)
+
+                # TODO: perform contrastive loss
+                logits = torch.matmul(z_a, z_pos.T)
+                logits = logits - torch.max(logits, 1)[0][:, None]
+
+                labels = torch.arange(logits.shape[0]).long().to(batch.device)
+                _nce_loss = F.cross_entropy(logits, labels)
+
+                _nce_loss.backward()
+                # self._cpc_optim.step()
+                self._actor_optim.step()
+
+                action_reg_loss = _nce_loss.item()
+            else:
+                action_reg_loss = 0
+
             extra_logs = (actor_loss.cpu().detach().numpy(), bc_loss.cpu().detach().numpy(),
                           action_reg_loss)
 
@@ -347,7 +449,7 @@ class TD3PlusBCAugImpl(TD3Impl):
         optimizer = self._transform_params.get('optimizer', 'pgd')
 
         if (attack_type_for_actor is not None) and (for_critic is False):
-            # This attack is specified for attack actor
+            # This attack is specified for attack actor. If it is not specified, the attack_type will be used
             attack_type = attack_type_for_actor
 
         assert (epsilon is not None) and (num_steps is not None) and \
@@ -394,12 +496,12 @@ class TD3PlusBCAugImpl(TD3Impl):
                                      optimizer=optimizer)
             batch_aug._observations = adv_x
 
-            adv_x = actor_mad_attack(batch_aug._next_observations,
-                                     self._policy, self._q_func,
-                                     epsilon, num_steps, step_size,
-                                     self._obs_min_norm, self._obs_max_norm,
-                                     optimizer=optimizer)
-            batch_aug._next_observations = adv_x
+            # adv_x = actor_mad_attack(batch_aug._next_observations,
+            #                          self._policy, self._q_func,
+            #                          epsilon, num_steps, step_size,
+            #                          self._obs_min_norm, self._obs_max_norm,
+            #                          optimizer=optimizer)
+            # batch_aug._next_observations = adv_x
 
         else:
             raise NotImplementedError

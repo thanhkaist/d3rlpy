@@ -186,6 +186,11 @@ class TD3PlusBCAug(AlgoBase):
         assert self.scaler._mean is not None and self.scaler._std is not None
         self._impl.init_range_of_norm_obs()
 
+        self.cpc_optim_factory = AdamFactory()
+        self._impl._cpc_optim = self.cpc_optim_factory.create(
+            list(self._impl.policy._encoder.parameters()) + [self._impl.W], lr=3e-4
+        )
+
     def _update(self, batch: TransitionMiniBatch) -> Dict[str, float]:
         assert self._impl is not None, IMPL_NOT_INITIALIZED_ERROR
 

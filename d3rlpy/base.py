@@ -1,6 +1,7 @@
 import copy
 import json
 import os.path
+import shutil
 from abc import ABCMeta, abstractmethod
 from collections import defaultdict
 from typing import (
@@ -360,6 +361,7 @@ class LearnableBase:
         allow_overwrite: bool = False,
         wandb_project: str ="BASE",
         use_wandb: bool = True,
+        backup_file: bool = False,
         verbose: bool = True,
         show_progress: bool = True,
         tensorboard_dir: Optional[str] = None,
@@ -423,6 +425,7 @@ class LearnableBase:
                 allow_overwrite,
                 wandb_project,
                 use_wandb,
+                backup_file,
                 verbose,
                 show_progress,
                 tensorboard_dir,
@@ -451,6 +454,7 @@ class LearnableBase:
         allow_overwrite: bool = False,
         wandb_project: str ="BASE",
         use_wandb: bool = True,
+        backup_file: bool = False,
         verbose: bool = True,
         show_progress: bool = True,
         tensorboard_dir: Optional[str] = None,
@@ -573,6 +577,13 @@ class LearnableBase:
             wandb_project=wandb_project,
             use_wandb=use_wandb
         )
+        if backup_file:
+            source_code_backup = os.path.join(logger.logdir, "source_codes")
+            os.mkdir(source_code_backup)
+            shutil.copytree("d3rlpy", os.path.join(source_code_backup, "d3rlpy"))
+            for file in os.listdir("."):
+                if file.endswith(".py"):
+                    shutil.copy(file, os.path.join(source_code_backup, file))
 
         # add reference to active logger to algo class during fit
         self._active_logger = logger
