@@ -361,12 +361,6 @@ class TD3PlusBCAugImpl(TD3Impl):
                                          optimizer=optimizer)
             batch_aug._observations = adv_x
 
-            adv_x = critic_normal_attack(batch_aug._next_observations,
-                                         self._policy, self._q_func,
-                                         epsilon, num_steps, step_size,
-                                         self._obs_min_norm, self._obs_max_norm,
-                                         optimizer=optimizer)
-            batch_aug._next_observations = adv_x
 
         elif attack_type in ['critic_mqd']:
             adv_x = critic_mqd_attack(batch_aug._observations,
@@ -385,12 +379,6 @@ class TD3PlusBCAugImpl(TD3Impl):
                                      optimizer=optimizer)
             batch_aug._observations = adv_x
 
-            adv_x = actor_mad_attack(batch_aug._next_observations,
-                                     self._policy, self._q_func,
-                                     epsilon, num_steps, step_size,
-                                     self._obs_min_norm, self._obs_max_norm,
-                                     optimizer=optimizer)
-            batch_aug._next_observations = adv_x
 
         else:
             raise NotImplementedError
