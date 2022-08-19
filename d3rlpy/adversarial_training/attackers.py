@@ -229,4 +229,6 @@ def actor_mad_attack(x, _policy, _q_func, epsilon, num_steps, step_size, _obs_mi
         raise NotImplementedError
 
     perturbed_state = adv_x     # already normalized
+    assert np.max(np.linalg.norm(perturbed_state.cpu() - ori_x.cpu(), np.inf, 1)) < (
+            epsilon + 1e-4), f"Perturbed state go out of epsilon {np.max(np.linalg.norm(perturbed_state.cpu() - ori_x.cpu(), np.inf, 1))}"
     return perturbed_state

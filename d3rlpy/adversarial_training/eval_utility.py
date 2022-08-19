@@ -5,6 +5,7 @@ import copy
 from tqdm import tqdm
 
 import torch
+import torch.nn as nn
 from torch import multiprocessing as mp
 
 import numpy as np
@@ -159,7 +160,6 @@ def eval_multiprocess_wrapper(algo, func, env_list, params):
     return unorm_score
 
 
-import torch.nn as nn
 def train_sarsa(algo, env, ckpt, buffer=None, n_sarsa_steps=150000, n_warmups=100000):
 
     # ckpt is in format: /path/to/model_500000.pt
