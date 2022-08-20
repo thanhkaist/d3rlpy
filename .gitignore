@@ -37,3 +37,8 @@ s123_d3rlpy_logs/
 s144_d3rlpy_logs/
 s68_d3rlpy_logs/
 s41_d3rlpy_logs/
+
+eval_results/
+d3rlpy_logs/
+*.sh
+
