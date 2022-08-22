@@ -22,6 +22,17 @@ ENV_NAME_MAPPING = {
 }
 
 
+def set_name_wandb_project(dataset):
+    project_name = None
+    if 'hopper' in dataset:
+        project_name = 'HOPPER-J'
+    elif 'walker' in dataset:
+        project_name = 'WALKER-J'
+    elif 'halfcheetah' in dataset:
+        project_name = 'CHEETAH-J'
+
+    return project_name
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default='hopper-medium-v0')
@@ -153,7 +164,7 @@ def main():
         logdir=args.logdir,
         scorers=scorer_funcs,
         eval_interval=args.eval_interval,
-        wandb_project=args.project,
+        wandb_project=set_name_wandb_project(args.dataset),
         use_wandb=args.wandb,
         experiment_name=f"{ENV_NAME_MAPPING[args.dataset]}_{args.exp}",
         finetune=args.finetune,
