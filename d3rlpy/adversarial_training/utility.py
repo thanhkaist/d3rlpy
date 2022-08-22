@@ -162,6 +162,18 @@ def count_num_seeds_in_path(ckpt_path, ckpt_steps):
     return len(ckpt_list)
 
 
+def set_name_wandb_project(dataset):
+    project_name = None
+    if 'hopper' in dataset:
+        project_name = 'HOPPER-J'
+    elif 'walker' in dataset:
+        project_name = 'WALKER-J'
+    elif 'halfcheetah' in dataset:
+        project_name = 'CHEETAH-J'
+
+    return project_name
+
+
 def make_bound_for_network(algo):
     # For convex relaxation: This is tested for TD3, not guarantee to work with other algorithms
     algo._impl._q_func = WrapperBoundEnsembleContinuousQFunction(

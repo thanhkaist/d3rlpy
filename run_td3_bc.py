@@ -1,6 +1,7 @@
 import argparse
 import d3rlpy
 from sklearn.model_selection import train_test_split
+from d3rlpy.adversarial_training.utility import set_name_wandb_project
 
 
 ENV_NAME_MAPPING = {
@@ -20,6 +21,18 @@ ENV_NAME_MAPPING = {
     'halfcheetah-medium-expert-v0': 'che-m-e',
     'halfcheetah-expert-v0': 'che-e'
 }
+
+
+def set_name_wandb_project(dataset):
+    project_name = None
+    if 'hopper' in dataset:
+        project_name = 'HOPPER-J'
+    elif 'walker' in dataset:
+        project_name = 'WALKER-J'
+    elif 'halfcheetah' in dataset:
+        project_name = 'CHEETAH-J'
+
+    return project_name
 
 
 def main():
@@ -96,7 +109,7 @@ def main():
         save_interval=10,
         logdir=args.logdir,
         scorers=scorer_funcs,
-        wandb_project=args.project,
+        wandb_project=set_name_wandb_project(args.dataset),
         use_wandb=args.wandb,
         experiment_name=f"TD3_BC_{ENV_NAME_MAPPING[args.dataset]}_{args.exp}"
     )
