@@ -11,6 +11,15 @@ from torch import multiprocessing as mp
 import pandas as pd
 import numpy as np
 
+from rliable import library as rly
+from rliable import metrics
+from rliable import plot_utils
+
+IQM = lambda x: metrics.aggregate_iqm(x) # Interquartile Mean
+OG = lambda x: metrics.aggregate_optimality_gap(x, 1.0) # Optimality Gap
+MEAN = lambda x: metrics.aggregate_mean(x)
+MEDIAN = lambda x: metrics.aggregate_median(x)
+
 from d3rlpy.preprocessing.scalers import StandardScaler
 from d3rlpy.adversarial_training.utility import make_checkpoint_list, copy_file, EvalLogger
 from d3rlpy.adversarial_training.eval_utility import (
@@ -174,6 +183,7 @@ def main(args):
         len(list_checkpoints) > args.n_seeds_want_to_test else len(list_checkpoints)
     for c, checkpoint in enumerate(list_checkpoints[:n_seeds]):
         if c > 0:
+            # If only have 1 seed, do not write anything
             writer.init_info_from_ckpt(checkpoint)
             writer.write_header()
 
@@ -196,30 +206,37 @@ def main(args):
                 if not args.disable_clean:
                     norm_scores[n, r, c] = _norm_score
                 norm_score_attacks[n, r, c] = _norm_score_attack
-        print("\n<=== Evaluation time for 1 seed: %.3f (s)\n" % (time.time() - start))
+        print("\n<=== Evaluation time for seed %d: %.3f (s)\n" % (c + 1, time.time() - start))
 
 
     writer.print("\n\n====================== Summary ======================\n")
-    writer.print("Average clean: mean=%.2f, std=%.2f, median=%.2f (%d seeds)\n" %
-                 (np.mean(norm_scores, axis=2).squeeze(), np.std(norm_scores, axis=2).squeeze(),
-                  np.median(norm_scores, axis=2).squeeze(), n_seeds))
+    writer.print("Average clean: mean=%.2f, std=%.2f, median=%.2f, iqm=%.2f, og=%.2f (%d seeds)\n" %
+                 (MEAN([norm_scores[0, 0]]), np.std(norm_scores, axis=2).squeeze(),
+                  MEDIAN([norm_scores[0, 0]]),
+                  IQM([norm_scores[0, 0]]), OG([norm_scores[0, 0]]),
+                  n_seeds))
 
-    columns = ["mean", "std", "median", "n_seeds"]
-    data = [[np.mean(norm_scores, axis=2).squeeze(), np.std(norm_scores, axis=2).squeeze(),
-             np.median(norm_scores, axis=2).squeeze(), n_seeds]]
+    columns = ["mean", "std", "median", "iqm", "og", "n_seeds"]
+    data = [[MEAN([norm_scores[0, 0]]), np.std(norm_scores, axis=2).squeeze(),
+             MEDIAN([norm_scores[0, 0]]), IQM([norm_scores[0, 0]]), OG([norm_scores[0, 0]]),
+             n_seeds]]
     summary = pd.DataFrame(data, columns=columns, index=["clean"])
     for n in range(N):
         for r in range(R):
-            writer.print("Attack: %15s [eps=%.4f]: mean=%.2f, std=%.2f, median=%.2f (%d seeds)\n" %
+            writer.print("Attack: %15s [eps=%.4f]: mean=%.2f, std=%.2f, median=%.2f, iqm=%.2f, og=%.2f (%d seeds)\n" %
                          (args.attack_type_list[n], args.attack_epsilon_list[r],
-                          np.mean(norm_score_attacks, axis=2)[n, r],
+                          MEAN([norm_score_attacks[n, r]]),
                           np.std(norm_score_attacks, axis=2)[n, r],
-                          np.median(norm_score_attacks, axis=2)[n, r],
+                          MEDIAN([norm_score_attacks[n, r]]),
+                          IQM([norm_score_attacks[n, r]]),
+                          OG([norm_score_attacks[n, r]]),
                           n_seeds))
             data = [[
-                np.mean(norm_score_attacks, axis=2)[n, r],
+                MEAN([norm_score_attacks[n, r]]),
                 np.std(norm_score_attacks, axis=2)[n, r],
-                np.median(norm_score_attacks, axis=2)[n, r],
+                MEDIAN([norm_score_attacks[n, r]]),
+                IQM([norm_score_attacks[n, r]]),
+                OG([norm_score_attacks[n, r]]),
                 n_seeds
             ]]
             index = ["%15s-[eps=%.4f]" % (args.attack_type_list[n], args.attack_epsilon_list[r])]
