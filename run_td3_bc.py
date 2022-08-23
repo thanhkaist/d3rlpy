@@ -79,14 +79,6 @@ def main():
 
     scorer_funcs = {
         'environment': d3rlpy.metrics.evaluate_on_environment(env, n_trials=args.n_eval_episodes),
-        'noise_environment': d3rlpy.metrics.evaluate_on_environment_with_attack(
-            env,
-            n_trials=args.n_eval_episodes,
-            attack_type="random",
-            attack_epsilon=args.epsilon,
-            attack_iteration=args.num_steps,
-            attack_stepsize=args.epsilon / args.num_steps
-        ),
         'critic_normal_environment': d3rlpy.metrics.evaluate_on_environment_with_attack(
             env,
             n_trials=args.n_eval_episodes,
