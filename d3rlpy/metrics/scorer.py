@@ -12,7 +12,7 @@ from ..preprocessing.stack import StackedObservation
 import d4rl
 from ..adversarial_training.attackers import critic_normal_attack, actor_mad_attack, random_attack
 from ..adversarial_training.utility import tensor
-from ..adversarial_training.eval_utility import make_sure_type_is_float32
+from ..adversarial_training.eval_utility import make_sure_type_is_float32, ENV_SEED
 
 WINDOW_SIZE = 1024
 
@@ -446,6 +446,7 @@ def evaluate_on_environment(
 
 
     """
+    env.seed(ENV_SEED)
     return_norm_score = True if env.env.spec.id in d4rl.infos.DATASET_URLS.keys() else False
 
     # for image observation
@@ -459,7 +460,8 @@ def evaluate_on_environment(
             )
 
         episode_rewards = []
-        for _ in range(n_trials):
+        for i in range(n_trials):
+            env.seed(ENV_SEED + i)
             observation = env.reset()
             episode_reward = 0.0
 
@@ -540,6 +542,7 @@ def evaluate_on_environment_with_attack(
 
 
     """
+    env.seed(ENV_SEED)
     return_norm_score = True if env.env.spec.id in d4rl.infos.DATASET_URLS.keys() else False
 
     # for image observation
@@ -592,7 +595,8 @@ def evaluate_on_environment_with_attack(
             )
 
         episode_rewards = []
-        for _ in range(n_trials):
+        for i in range(n_trials):
+            env.seed(ENV_SEED + i)
             observation = env.reset()
             episode_reward = 0.0
 

@@ -33,7 +33,7 @@ def main():
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--logdir', type=str, default='d3rlpy_logs')
     parser.add_argument('--n_steps', type=int, default=500000)
-    parser.add_argument('--eval_interval', type=int, default=50)
+    parser.add_argument('--eval_interval', type=int, default=25)
     parser.add_argument('--n_eval_episodes', type=int, default=10)
 
     SUPPORTED_TRANSFORMS = ['adversarial_training']
