@@ -23,6 +23,7 @@ MEDIAN = lambda x: metrics.aggregate_median(x)
 from d3rlpy.preprocessing.scalers import StandardScaler
 from d3rlpy.adversarial_training.utility import make_checkpoint_list, copy_file, EvalLogger
 from d3rlpy.adversarial_training.eval_utility import (
+    ENV_SEED,
     eval_clean_env,
     eval_env_under_attack,
     eval_multiprocess_wrapper,
@@ -87,7 +88,7 @@ def eval_func(algo, env, writer, attack_type, attack_epsilon, params):
         env_list.append(env)
         for i in range(_args.n_processes - 1):
             _env = gym.make(_args.dataset)
-            _env.seed(_args.seed)
+            _env.seed(ENV_SEED)
             env_list.append(_env)
         if not _args.disable_clean:
             unorm_score = eval_multiprocess_wrapper(algo, eval_clean_env, env_list, _args)
@@ -97,7 +98,8 @@ def eval_func(algo, env, writer, attack_type, attack_epsilon, params):
 
     else:
         print("[INFO] Normally evaluating...")
-        func_args = (0, algo, env, _args.seed, _args)  # algo, env, start_seed, args
+        # func_args = (0, algo, env, _args.seed, _args)  # algo, env, start_seed, args
+        func_args = (0, algo, env, ENV_SEED, _args)  # algo, env, start_seed, args
 
         if not _args.disable_clean:
             unorm_score = eval_clean_env(func_args)
@@ -132,7 +134,7 @@ def main(args):
     dataset, env = d3rlpy.datasets.get_dataset(args.dataset)
 
     d3rlpy.seed(args.seed)
-    env.seed(args.seed)
+    env.seed(ENV_SEED)
 
     if args.online_rl:
         env_name = args.dataset.split('-')[0]

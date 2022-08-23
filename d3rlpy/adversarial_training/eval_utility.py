@@ -12,6 +12,9 @@ import numpy as np
 from .utility import tensor, make_bound_for_network
 from .attackers import random_attack, critic_normal_attack, actor_mad_attack
 
+ENV_SEED = 12345  # Global env seed for evaluation
+
+
 def make_sure_type_is_float32(x):
     assert isinstance(x, np.ndarray)
     x = x.astype(np.float32) if x.dtype == np.float64 else x
@@ -150,7 +153,7 @@ def eval_multiprocess_wrapper(algo, func, env_list, params):
         else:
             params_tmp.n_eval_episodes = n_trials_per_each
 
-        start_seed = n_trials_per_each * i + 1
+        start_seed = ENV_SEED + n_trials_per_each * i
         args_list.append((i, algo, env_list[i], start_seed, params_tmp))
 
     with mp.Pool(params.n_processes) as pool:
