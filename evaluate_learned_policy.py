@@ -46,6 +46,8 @@ parser.add_argument('--attack_epsilon', type=float, default=None)
 parser.add_argument('--attack_type_list', type=str, default='random', nargs='+')
 parser.add_argument('--attack_epsilon_list', type=float, default=1e-4, nargs='+')
 parser.add_argument('--attack_iteration', type=int, default=0)
+parser.add_argument('--no_clip', action='store_true')
+parser.add_argument('--no_assert', action='store_true')
 
 SUPPORTED_OPTIMS = ['pgd', 'sgld']
 parser.add_argument('--optimizer', type=str, default='pgd', choices=SUPPORTED_OPTIMS)

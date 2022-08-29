@@ -69,7 +69,7 @@ def eval_env_under_attack(params):
               (params.attack_type.upper(), attack_epsilon, params.attack_iteration, attack_stepsize))
 
     def perturb(state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None,
-               optimizer='pgd'):
+               optimizer='pgd', clip=True, use_assert=True):
         """" NOTE: This state is taken directly from environment, so it is un-normalized, when we
         return the perturbed state, it must be un-normalized
         """""
@@ -81,7 +81,7 @@ def eval_env_under_attack(params):
         if type in ['random']:
             perturb_state = random_attack(
                 state_tensor, attack_epsilon,
-                algo._impl._obs_min_norm, algo._impl._obs_max_norm,
+                algo._impl._obs_min_norm, algo._impl._obs_max_norm, clip=clip, use_assert=use_assert
             )
 
         elif type in ['critic_normal', 'sarsa']:
@@ -89,7 +89,7 @@ def eval_env_under_attack(params):
                 state_tensor, algo._impl._policy, algo._impl._q_func,
                 attack_epsilon, attack_iteration, attack_stepsize,
                 algo._impl._obs_min_norm, algo._impl._obs_max_norm,
-                optimizer=optimizer
+                optimizer=optimizer, clip=clip, use_assert=use_assert
             )
 
         elif type in ['actor_mad']:
@@ -97,7 +97,7 @@ def eval_env_under_attack(params):
                 state_tensor, algo._impl._policy, algo._impl._q_func,
                 attack_epsilon, attack_iteration, attack_stepsize,
                 algo._impl._obs_min_norm, algo._impl._obs_max_norm,
-                optimizer=optimizer
+                optimizer=optimizer, clip=clip, use_assert=use_assert
             )
 
         else:
@@ -127,7 +127,7 @@ def eval_env_under_attack(params):
             state = perturb(
                 state,
                 attack_type, attack_epsilon, params.attack_iteration, attack_stepsize,
-                optimizer=params.optimizer
+                optimizer=params.optimizer, clip=not params.no_clip, use_assert=not params.no_assert
             )
             action = algo.predict([state])[0]
 

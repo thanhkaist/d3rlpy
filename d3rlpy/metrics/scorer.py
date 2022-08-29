@@ -505,7 +505,8 @@ def evaluate_on_environment(
 def evaluate_on_environment_with_attack(
     env: gym.Env, n_trials: int = 10, epsilon: float = 0.0, render: bool = False,
     attack_type: str = 'random',
-    attack_epsilon: float = 1e-4, attack_iteration: int = 5, attack_stepsize: float = 2e-5
+    attack_epsilon: float = 1e-4, attack_iteration: int = 5, attack_stepsize: float = 2e-5,
+    clip=True, use_assert=True
 ):
     """Returns scorer function of evaluation on environment.
 
@@ -550,7 +551,7 @@ def evaluate_on_environment_with_attack(
     is_image = len(observation_shape) == 3
 
     def perturb(algo, state, type, attack_epsilon=None, attack_iteration=None, attack_stepsize=None,
-                optimizer='pgd'):
+                optimizer='pgd', clip=True, use_assert=True):
         """" NOTE: This state is taken directly from environment, so it is un-normalized, when we
         return the perturbed state, it must be un-normalized
         """""
@@ -563,6 +564,7 @@ def evaluate_on_environment_with_attack(
             perturb_state = random_attack(
                 state_tensor, attack_epsilon,
                 algo._impl._obs_min_norm, algo._impl._obs_max_norm,
+                clip=clip, use_assert=use_assert
             )
 
         elif type in ['critic_normal']:
@@ -570,7 +572,7 @@ def evaluate_on_environment_with_attack(
                 state_tensor, algo._impl._policy, algo._impl._q_func,
                 attack_epsilon, attack_iteration, attack_stepsize,
                 algo._impl._obs_min_norm, algo._impl._obs_max_norm,
-                optimizer=optimizer
+                optimizer=optimizer, clip=clip, use_assert=use_assert
             )
 
         elif type in ['actor_mad']:
@@ -578,7 +580,7 @@ def evaluate_on_environment_with_attack(
                 state_tensor, algo._impl._policy, algo._impl._q_func,
                 attack_epsilon, attack_iteration, attack_stepsize,
                 algo._impl._obs_min_norm, algo._impl._obs_max_norm,
-                optimizer=optimizer
+                optimizer=optimizer, clip=clip, use_assert=use_assert
             )
 
         else:
@@ -607,7 +609,8 @@ def evaluate_on_environment_with_attack(
                 else:
                     observation = make_sure_type_is_float32(observation)
                     observation = perturb(algo, observation, attack_type,
-                                         attack_epsilon, attack_iteration, attack_stepsize)
+                                          attack_epsilon, attack_iteration, attack_stepsize,
+                                          clip=clip, use_assert=use_assert)
                     action = algo.predict([observation])[0]
 
                 observation, reward, done, _ = env.step(action)

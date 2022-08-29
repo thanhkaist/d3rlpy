@@ -46,6 +46,8 @@ def main():
     parser.add_argument('--attack_type_for_actor', type=str, default=None, choices=SUPPORTED_ATTACKS)
     parser.add_argument('--robust_type', type=str, default='actor_mad', choices=SUPPORTED_ROBUSTS, nargs='+')
     parser.add_argument('--optimizer', type=str, default='pgd', choices=SUPPORTED_OPTIMS)
+    parser.add_argument('--no_clip', action='store_true')
+    parser.add_argument('--no_assert', action='store_true')
 
     parser.add_argument('--epsilon', type=float, default=0.05)
     parser.add_argument('--num_steps', type=int, default=5)
@@ -105,6 +107,8 @@ def main():
         actor_reg_coef=args.actor_reg_coef,
         prob_of_actor_on_adv=args.prob_of_actor_on_adv,
         optimizer=args.optimizer,
+        clip=not args.no_clip,
+        use_assert=not args.no_assert,
         epsilon_scheduler=dict(
             enable=args.eps_scheduler,
             start=args.eps_start_vale,
@@ -137,7 +141,9 @@ def main():
             attack_type="critic_normal",
             attack_epsilon=args.epsilon,
             attack_iteration=args.num_steps,
-            attack_stepsize=args.epsilon / args.num_steps
+            attack_stepsize=args.epsilon / args.num_steps,
+            clip=not args.no_clip,
+            use_assert=not args.not_assert
         ),
         'value_scale': d3rlpy.metrics.average_value_estimation_scorer,
         'td_error': d3rlpy.metrics.td_error_scorer,

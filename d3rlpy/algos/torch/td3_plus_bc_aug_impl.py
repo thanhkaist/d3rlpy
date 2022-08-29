@@ -345,6 +345,8 @@ class TD3PlusBCAugImpl(TD3Impl):
         attack_type = self._transform_params.get('attack_type', None)
         attack_type_for_actor = self._transform_params.get('attack_type_for_actor', None)
         optimizer = self._transform_params.get('optimizer', 'pgd')
+        clip = self._transform_params.get('clip', True)
+        use_assert = self._transform_params.get('use_assert', True)
 
         if (attack_type_for_actor is not None) and (for_critic is False):
             # This attack is specified for attack actor
@@ -355,28 +357,17 @@ class TD3PlusBCAugImpl(TD3Impl):
 
         if attack_type in ['random']:
             adv_x = random_attack(batch_aug._observations, epsilon,
-                                  self._obs_min_norm, self._obs_max_norm)
+                                  self._obs_min_norm, self._obs_max_norm,
+                                  clip=clip, use_assert=use_assert)
             batch_aug._observations = adv_x
 
-            adv_x = random_attack(batch_aug._next_observations, epsilon,
-                                  self._obs_min_norm, self._obs_max_norm)
-            batch_aug._next_observations = adv_x
 
         elif attack_type in ['critic_normal']:
             adv_x = critic_normal_attack(batch_aug._observations,
                                          self._policy, self._q_func,
                                          epsilon, num_steps, step_size,
                                          self._obs_min_norm, self._obs_max_norm,
-                                         optimizer=optimizer)
-            batch_aug._observations = adv_x
-
-
-        elif attack_type in ['critic_mqd']:
-            adv_x = critic_mqd_attack(batch_aug._observations,
-                                      batch_aug._actions,
-                                      self._policy, self._q_func,
-                                      epsilon, num_steps, step_size,
-                                      self._obs_min_norm, self._obs_max_norm)
+                                         optimizer=optimizer, clip=clip, use_assert=use_assert)
             batch_aug._observations = adv_x
 
 
@@ -385,7 +376,7 @@ class TD3PlusBCAugImpl(TD3Impl):
                                      self._policy, self._q_func,
                                      epsilon, num_steps, step_size,
                                      self._obs_min_norm, self._obs_max_norm,
-                                     optimizer=optimizer)
+                                     optimizer=optimizer, clip=clip, use_assert=use_assert)
             batch_aug._observations = adv_x
 
         else:
