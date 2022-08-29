@@ -187,10 +187,13 @@ def train_sarsa(algo, env, ckpt, buffer=None, n_sarsa_steps=150000, n_warmups=10
         os.mkdir(logdir_sarsa)
     if os.path.exists(model_path):
         print('Found pretrained SARSA: ', model_path)
+        print('Loading pretrained SARSA... ')
         algo.load_model(model_path)
     else:
         print('Not found pretrained SARSA: ', model_path)
         algo.fit_sarsa(env, buffer, n_sarsa_steps, n_warmups)
         algo.save_model(model_path)
+        print('Loading pretrained SARSA... ')
+        algo.load_model(model_path)
 
     return algo
