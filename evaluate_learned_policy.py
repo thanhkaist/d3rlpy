@@ -195,10 +195,7 @@ def main(args):
         start = time.time()
         for n, attack_type in enumerate(args.attack_type_list):
             if attack_type in ['sarsa']:
-                td3 = train_sarsa(td3, env, checkpoint)
-            elif 'sarsa' in args.attack_type_list:
-                # This is required to override previous sarsa checkpoint (if loaded)
-                td3.load_model(checkpoint)
+                td3 = train_sarsa(td3, env, checkpoint)     # If there is checkpoint, load it
 
             for r, attack_epsilon in enumerate(args.attack_epsilon_list):
                 args.disable_clean = not (r == 0) or not (n == 0)

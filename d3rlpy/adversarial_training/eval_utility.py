@@ -58,8 +58,8 @@ def eval_env_under_attack(params):
     n_trials = params.n_eval_episodes
 
     # Set seed
-    torch.manual_seed(params.seed)
-    np.random.seed(params.seed)
+    # torch.manual_seed(params.seed)
+    # np.random.seed(params.seed)
 
     attack_type = params.attack_type
     attack_epsilon = params.attack_epsilon
@@ -111,8 +111,12 @@ def eval_env_under_attack(params):
     for i in tqdm(range(n_trials), disable=(rank != 0), desc="{} attack".format(attack_type.upper())):
         if start_seed is None:
             env.seed(i)
+            torch.manual_seed(i)
+            np.random.seed(i)
         else:
             env.seed(start_seed + i)
+            torch.manual_seed(start_seed + i)
+            np.random.seed(start_seed + i)
         state = env.reset()
 
         episode_reward = 0.0
