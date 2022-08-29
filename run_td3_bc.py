@@ -47,6 +47,9 @@ def main():
     parser.add_argument('--n_steps', type=int, default=500000)
     parser.add_argument('--n_eval_episodes', type=int, default=5)
 
+    parser.add_argument('--no_clip', action='store_true')
+    parser.add_argument('--no_assert', action='store_true')
+
     parser.add_argument('--epsilon', type=float, default=0.05)
     parser.add_argument('--num_steps', type=int, default=5)
     parser.add_argument('--step_size', type=float, default=0.01)
@@ -54,6 +57,8 @@ def main():
     # For analyzing
     parser.add_argument('--target_smoothing_sigma', type=float, default=0.2)
     parser.add_argument('--target_smoothing_clip', type=float, default=0.5)
+
+
 
     args = parser.parse_args()
 
@@ -85,7 +90,9 @@ def main():
             attack_type="critic_normal",
             attack_epsilon=args.epsilon,
             attack_iteration=args.num_steps,
-            attack_stepsize=args.epsilon / args.num_steps
+            attack_stepsize=args.epsilon / args.num_steps,
+            clip=not args.no_clip,
+            use_assert=not args.no_assert
         ),
         'value_scale': d3rlpy.metrics.average_value_estimation_scorer,
         'td_error': d3rlpy.metrics.td_error_scorer,

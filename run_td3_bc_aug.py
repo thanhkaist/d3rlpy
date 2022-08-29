@@ -143,7 +143,7 @@ def main():
             attack_iteration=args.num_steps,
             attack_stepsize=args.epsilon / args.num_steps,
             clip=not args.no_clip,
-            use_assert=not args.not_assert
+            use_assert=not args.no_assert
         ),
         'value_scale': d3rlpy.metrics.average_value_estimation_scorer,
         'td_error': d3rlpy.metrics.td_error_scorer,
