@@ -46,7 +46,8 @@ def critic_normal_attack(x, _policy, _q_func, epsilon, num_steps, step_size,
     noise = torch.zeros_like(adv_x).uniform_(-epsilon, epsilon)
     adv_x = adv_x + noise                                   # Add noise in `normalized space`
 
-    adv_x = clamp(adv_x, _obs_min_norm, _obs_max_norm).detach()
+    if clip:
+        adv_x = clamp(adv_x, _obs_min_norm, _obs_max_norm).detach()
 
     if optimizer == 'pgd':
         for _ in range(num_steps):
@@ -78,6 +79,56 @@ def critic_normal_attack(x, _policy, _q_func, epsilon, num_steps, step_size,
         assert np.max(np.linalg.norm(perturbed_state.cpu() - ori_x.cpu(), np.inf, 1)) < (
             epsilon + 1e-4), f"Perturbed state go out of epsilon {np.max(np.linalg.norm(perturbed_state.cpu() - ori_x.cpu(), np.inf, 1))}\n Origin: {ori_x.cpu()}, perturb: {perturbed_state.cpu()}"
     return perturbed_state
+
+
+def critic_action_attack(x, a, _policy, _q_func, epsilon, num_steps, step_size,
+                         _obs_min_norm, _obs_max_norm,
+                         q_func_id=0, optimizer='pgd', clip=True, use_assert=True):
+    """" NOTE: x must be normalized """""
+
+    assert isinstance(x, torch.Tensor) and isinstance(a, torch.Tensor), "input x & a must be tensor."
+    ori_a = preprocess_state(a.clone().detach())                   # already normalized
+    ori_x = preprocess_state(x.clone().detach())                   # already normalized
+
+    adv_a = ori_a.clone().detach()               # already normalized
+
+    # Starting at a uniformly random point
+    noise = torch.zeros_like(adv_a).uniform_(-epsilon, epsilon)
+    adv_a = adv_a + noise                                   # Add noise in `normalized space`
+
+    adv_a = torch.clamp(adv_a, min=-1.0, max=1.0).detach()
+
+    with torch.no_grad():
+        gt_qval = _q_func(ori_x, ori_a, "none")[q_func_id].detach()
+
+    if optimizer == 'pgd':
+        for _ in range(num_steps):
+            adv_a.requires_grad = True
+
+            qval_adv = _q_func(ori_x, adv_a, "none")[q_func_id]
+
+            cost = F.mse_loss(qval_adv, gt_qval)
+
+            grad = torch.autograd.grad(cost, adv_a, retain_graph=False, create_graph=False)[0]
+
+            adv_a = adv_a.detach() + step_size * torch.sign(grad.detach())
+
+            delta = torch.clamp(adv_a - ori_a, min=-epsilon, max=epsilon)
+            adv_a = ori_a + delta       # This is adversarial example
+
+            # This clamp is performed in normalized scale
+            adv_a = torch.clamp(adv_a, min=-1.0, max=1.0).detach()
+
+    elif optimizer == 'sgld':
+        raise NotImplementedError
+    else:
+        raise NotImplementedError
+
+    perturbed_action = adv_a     # already normalized
+    if use_assert:
+        assert np.max(np.linalg.norm(perturbed_action.cpu() - ori_a.cpu(), np.inf, 1)) < (
+            epsilon + 1e-4), f"Perturbed state go out of epsilon {np.max(np.linalg.norm(perturbed_action.cpu() - ori_a.cpu(), np.inf, 1))}\n Origin: {ori_a.cpu()}, perturb: {perturbed_action.cpu()}"
+    return perturbed_action
 
 
 def critic_mqd_attack(x, a, _policy, _q_func, epsilon, num_steps, step_size, _obs_min_norm, _obs_max_norm,
@@ -142,7 +193,8 @@ def actor_mad_attack(x, _policy, _q_func, epsilon, num_steps, step_size, _obs_mi
     noise = torch.zeros_like(adv_x).uniform_(-epsilon, epsilon)
     adv_x = adv_x + noise                                          # Add noise in `normalized space`
 
-    adv_x = clamp(adv_x, _obs_min_norm, _obs_max_norm).detach()
+    if clip:
+        adv_x = clamp(adv_x, _obs_min_norm, _obs_max_norm).detach()
 
     if optimizer == 'pgd':
         for _ in range(num_steps):

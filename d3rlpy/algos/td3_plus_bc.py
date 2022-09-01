@@ -33,8 +33,10 @@ from ..online.iterators import _setup_algo
 from ..torch_utility import TorchMiniBatch
 
 import torch
+import torch.nn.functional as F
 from torch.utils.data._utils.collate import default_collate
 import numpy as np
+from d3rlpy.adversarial_training.attackers import critic_action_attack
 
 
 def _assert_action_space(algo: LearnableBase, env: gym.Env) -> None:
@@ -249,9 +251,12 @@ class TD3PlusBC(AlgoBase):
         batch_size: int = 256,
         log_interval: int = 2000,
         expl_noise: float = 0.1,
-        sarsa_reg: float = 0.1,
-        attack_epsilon: float = 1e-4
+        sarsa_reg: float = 1,
+        attack_epsilon: float = 0.05,
+        attack_iteration: int = 5,
     ) -> None:
+
+        attack_stepsize = attack_epsilon / attack_iteration
 
         if buffer is None:
             buffer = BufferSarsaWrapper(update_start_step, env=env)
@@ -343,6 +348,9 @@ class TD3PlusBC(AlgoBase):
                     reduction="min"
                 )
 
+                # This is the ground truth value to compute robust SARSA
+                gt_qval = self._impl._q_func(batch.observations, batch.actions, "none")
+
             # Normal Bellman error
             loss = self._impl._q_func.compute_error(
                 observations=batch.observations,
@@ -353,18 +361,32 @@ class TD3PlusBC(AlgoBase):
                 gamma=self._gamma ** batch.n_steps,
             )
 
-            # if sarsa_reg > 1e-5:
-            #     # TODO: Do we need to scale `attack_epsilon` by state_std and action_std ?
-            #     q_lb, q_ub = self._impl._q_func.compute_bound(
-            #         x_lb=batch.observations - attack_epsilon,
-            #         x_ub=batch.observations + attack_epsilon,
-            #         a_lb=batch.actions - attack_epsilon,
-            #         a_ub=batch.actions + attack_epsilon,
-            #         x=batch.observations, a=batch.actions,
-            #         beta=robust_beta,
-            #     )
-            #     critic_reg_loss = ((q_ub[0] - q_lb[0]).mean() + (q_ub[1] - q_lb[1]).mean()) / 2
-            #     loss += sarsa_reg * critic_reg_loss
+            if sarsa_reg > 1e-5:
+                # TODO: Do we need to scale `attack_epsilon` by state_std and action_std ?
+                # q_lb, q_ub = self._impl._q_func.compute_bound(
+                #     x_lb=batch.observations - attack_epsilon,
+                #     x_ub=batch.observations + attack_epsilon,
+                #     a_lb=batch.actions - attack_epsilon,
+                #     a_ub=batch.actions + attack_epsilon,
+                #     x=batch.observations, a=batch.actions,
+                #     beta=robust_beta,
+                # )
+                # critic_reg_loss = ((q_ub[0] - q_lb[0]).mean() + (q_ub[1] - q_lb[1]).mean()) / 2
+                # loss += sarsa_reg * critic_reg_loss
+
+                a_adv = critic_action_attack(batch.observations, batch.actions,
+                                             self._impl._policy, self._impl._q_func,
+                                             attack_epsilon, attack_iteration, attack_stepsize,
+                                             self._impl._obs_min_norm, self._impl._obs_max_norm,
+                                             )
+
+                qval_adv = self._impl._q_func(batch.observations, a_adv, "none")
+                q1_reg_loss = F.mse_loss(qval_adv[0], gt_qval[0])
+                q2_reg_loss = F.mse_loss(qval_adv[1], gt_qval[1])
+                critic_reg_loss = (q1_reg_loss + q2_reg_loss) / 2
+                loss += sarsa_reg * critic_reg_loss
+
+
 
             loss.backward()
             self._impl._critic_optim.step()
@@ -373,7 +395,8 @@ class TD3PlusBC(AlgoBase):
                 self._impl.update_critic_target()
 
             if total_step % log_interval == 0:
-                print("Iter: %d, q1_pred=%.2f, q2_pred=%.2f" % (total_step, q1_pred, q2_pred))
+                print("Iter: %d, q1_pred=%.2f, q2_pred=%.2f, critic_loss=%.4f, reg_loss=%.4f" %
+                      (total_step, q1_pred, q2_pred, loss.item(), critic_reg_loss.item()))
 
 
 class BufferSarsaWrapper(ReplayBuffer):
