@@ -45,7 +45,8 @@ def main():
     parser.add_argument('--wandb', action='store_true')
     parser.add_argument('--logdir', type=str, default='d3rlpy_logs')
     parser.add_argument('--n_steps', type=int, default=500000)
-    parser.add_argument('--n_eval_episodes', type=int, default=5)
+    parser.add_argument('--eval_interval', type=int, default=25)
+    parser.add_argument('--n_eval_episodes', type=int, default=10)
 
     parser.add_argument('--no_clip', action='store_true')
     parser.add_argument('--no_assert', action='store_true')
@@ -108,6 +109,7 @@ def main():
         save_interval=10,
         logdir=args.logdir,
         scorers=scorer_funcs,
+        eval_interval=args.eval_interval,
         wandb_project=set_name_wandb_project(args.dataset),
         use_wandb=args.wandb,
         experiment_name=f"TD3_BC_{ENV_NAME_MAPPING[args.dataset]}_{args.exp}"
