@@ -68,6 +68,8 @@ def critic_normal_attack(x, _policy, _q_func, epsilon, num_steps, step_size,
             # This clamp is performed in normalized scale
             if clip:
                 adv_x = clamp(adv_x, _obs_min_norm, _obs_max_norm).detach()
+            else:
+                adv_x = adv_x.detach()
 
     elif optimizer == 'sgld':
         raise NotImplementedError
@@ -131,6 +133,60 @@ def critic_action_attack(x, a, _policy, _q_func, epsilon, num_steps, step_size,
     return perturbed_action
 
 
+def critic_state_attack(x, a, _policy, _q_func, epsilon, num_steps, step_size,
+                        _obs_min_norm, _obs_max_norm,
+                        q_func_id=0, optimizer='pgd', clip=True, use_assert=True):
+    """" NOTE: x must be normalized """""
+
+    assert isinstance(x, torch.Tensor) and isinstance(a, torch.Tensor), "input x & a must be tensor."
+    ori_a = preprocess_state(a.clone().detach())                   # already normalized
+    ori_x = preprocess_state(x.clone().detach())                   # already normalized
+
+    adv_x = ori_x.clone().detach()               # already normalized
+
+    # Starting at a uniformly random point
+    noise = torch.zeros_like(adv_x).uniform_(-epsilon, epsilon)
+    adv_x = adv_x + noise  # Add noise in `normalized space`
+
+    if clip:
+        adv_x = clamp(adv_x, _obs_min_norm, _obs_max_norm).detach()
+
+    with torch.no_grad():
+        gt_qval = _q_func(ori_x, ori_a, "none")[q_func_id].detach()
+
+    if optimizer == 'pgd':
+        for _ in range(num_steps):
+            adv_x.requires_grad = True
+
+            qval = _q_func(adv_x, ori_a, "none")[q_func_id]
+
+            cost = F.mse_loss(qval, gt_qval)
+
+            grad = torch.autograd.grad(cost, adv_x, retain_graph=False, create_graph=False)[0]
+
+            adv_x = adv_x.detach() + step_size * torch.sign(grad.detach())
+
+            delta = torch.clamp(adv_x - ori_x, min=-epsilon, max=epsilon)
+            adv_x = ori_x + delta       # This is adversarial example
+
+            # This clamp is performed in normalized scale
+            if clip:
+                adv_x = clamp(adv_x, _obs_min_norm, _obs_max_norm).detach()
+            else:
+                adv_x = adv_x.detach()
+
+    elif optimizer == 'sgld':
+        raise NotImplementedError
+    else:
+        raise NotImplementedError
+
+    perturbed_state = adv_x     # already normalized
+    if use_assert:
+        assert np.max(np.linalg.norm(perturbed_state.cpu() - ori_x.cpu(), np.inf, 1)) < (
+            epsilon + 1e-4), f"Perturbed state go out of epsilon {np.max(np.linalg.norm(perturbed_state.cpu() - ori_x.cpu(), np.inf, 1))}\n Origin: {ori_x.cpu()}, perturb: {perturbed_state.cpu()}"
+    return perturbed_state
+
+
 def critic_mqd_attack(x, a, _policy, _q_func, epsilon, num_steps, step_size, _obs_min_norm, _obs_max_norm,
                       q_func_id=0, optimizer='pgd'):
     """" NOTE: x must be normalized """""
@@ -176,7 +232,6 @@ def critic_mqd_attack(x, a, _policy, _q_func, epsilon, num_steps, step_size, _ob
     perturbed_state = adv_x     # already normalized
     return perturbed_state
 
-
 def actor_mad_attack(x, _policy, _q_func, epsilon, num_steps, step_size, _obs_min_norm, _obs_max_norm,
                      optimizer='pgd', clip=True, use_assert=True):
     """" NOTE: x must be normalized """""
@@ -214,6 +269,8 @@ def actor_mad_attack(x, _policy, _q_func, epsilon, num_steps, step_size, _obs_mi
             if clip:
                 # This clamp is performed in normalized scale
                 adv_x = clamp(adv_x, _obs_min_norm, _obs_max_norm).detach()
+            else:
+                adv_x = adv_x.detach()
 
     elif optimizer == 'sgld':
         raise NotImplementedError
