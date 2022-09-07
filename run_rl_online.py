@@ -58,41 +58,42 @@ def main():
     env.seed(args.seed)
     eval_env.seed(args.seed)
 
-    if 'walker' in args.dataset and args.algo == 'TD3':
-        dataset1, _ = d3rlpy.datasets.get_dataset('walker2d-random-v0')
-        dataset2, _ = d3rlpy.datasets.get_dataset('walker2d-medium-v0')
-        dataset3, _ = d3rlpy.datasets.get_dataset('walker2d-medium-replay-v0')
-        dataset4, _ = d3rlpy.datasets.get_dataset('walker2d-expert-v0')
+    if args.algo == 'TD3':
+        if 'walker' in args.dataset:
+            dataset1, _ = d3rlpy.datasets.get_dataset('walker2d-random-v0')
+            dataset2, _ = d3rlpy.datasets.get_dataset('walker2d-medium-v0')
+            dataset3, _ = d3rlpy.datasets.get_dataset('walker2d-medium-replay-v0')
+            dataset4, _ = d3rlpy.datasets.get_dataset('walker2d-expert-v0')
 
-        dataset1.extend(dataset2)
-        dataset1.extend(dataset3)
-        dataset1.extend(dataset4)
+            dataset1.extend(dataset2)
+            dataset1.extend(dataset3)
+            dataset1.extend(dataset4)
 
-        scaler = StandardScaler(dataset1)
-    elif 'hopper' in args.dataset and args.algo == 'TD3':
-        dataset1, _ = d3rlpy.datasets.get_dataset('hopper-random-v0')
-        dataset2, _ = d3rlpy.datasets.get_dataset('hopper-medium-v0')
-        dataset3, _ = d3rlpy.datasets.get_dataset('hopper-medium-replay-v0')
-        dataset4, _ = d3rlpy.datasets.get_dataset('hopper-expert-v0')
+            scaler = StandardScaler(dataset1)
+        elif 'hopper' in args.dataset and args.algo == 'TD3':
+            dataset1, _ = d3rlpy.datasets.get_dataset('hopper-random-v0')
+            dataset2, _ = d3rlpy.datasets.get_dataset('hopper-medium-v0')
+            dataset3, _ = d3rlpy.datasets.get_dataset('hopper-medium-replay-v0')
+            dataset4, _ = d3rlpy.datasets.get_dataset('hopper-expert-v0')
 
-        dataset1.extend(dataset2)
-        dataset1.extend(dataset3)
-        dataset1.extend(dataset4)
+            dataset1.extend(dataset2)
+            dataset1.extend(dataset3)
+            dataset1.extend(dataset4)
 
-        scaler = StandardScaler(dataset1)
-    elif 'halfcheetah' in args.dataset and args.algo == 'TD3':
-        dataset1, _ = d3rlpy.datasets.get_dataset('halfcheetah-random-v0')
-        dataset2, _ = d3rlpy.datasets.get_dataset('halfcheetah-medium-v0')
-        dataset3, _ = d3rlpy.datasets.get_dataset('halfcheetah-medium-replay-v0')
-        dataset4, _ = d3rlpy.datasets.get_dataset('halfcheetah-expert-v0')
+            scaler = StandardScaler(dataset1)
+        elif 'halfcheetah' in args.dataset and args.algo == 'TD3':
+            dataset1, _ = d3rlpy.datasets.get_dataset('halfcheetah-random-v0')
+            dataset2, _ = d3rlpy.datasets.get_dataset('halfcheetah-medium-v0')
+            dataset3, _ = d3rlpy.datasets.get_dataset('halfcheetah-medium-replay-v0')
+            dataset4, _ = d3rlpy.datasets.get_dataset('halfcheetah-expert-v0')
 
-        dataset1.extend(dataset2)
-        dataset1.extend(dataset3)
-        dataset1.extend(dataset4)
+            dataset1.extend(dataset2)
+            dataset1.extend(dataset3)
+            dataset1.extend(dataset4)
 
-        scaler = StandardScaler(dataset1)
-    else:
-        raise NotImplementedError
+            scaler = StandardScaler(dataset1)
+        else:
+            raise NotImplementedError
 
     if args.algo == 'TD3':
         # setup algorithm
