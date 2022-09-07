@@ -207,6 +207,7 @@ class AlgoBase(LearnableBase):
         timelimit_aware: bool = True,
         wandb_project: str = "BASE",
         use_wandb: bool = True,
+        eval_interval: int = 1,
         callback: Optional[Callable[[AlgoProtocol, int, int], None]] = None,
     ) -> None:
         """Start training loop of online deep reinforcement learning.
@@ -273,7 +274,8 @@ class AlgoBase(LearnableBase):
             timelimit_aware=timelimit_aware,
             callback=callback,
             wandb_project=wandb_project,
-            use_wandb=use_wandb
+            use_wandb=use_wandb,
+            eval_interval=eval_interval
         )
 
     def collect(
