@@ -23,7 +23,7 @@ from ...adversarial_training.attackers import (
     random_attack,
     actor_mad_attack,
     critic_normal_attack,
-    critic_mqd_attack,
+    critic_state_attack,
 )
 
 
@@ -195,6 +195,46 @@ class TD3PlusBCAugImpl(TD3Impl):
                           q1_pred_adv_diff, q2_pred_adv_diff)
         elif 'critic_reg' in robust_type:
 
+            # batch, batch_aug = self.do_augmentation(batch, for_critic=True, epsilon=epsilon)
+            #
+            # with torch.no_grad():
+            #     # This is for logging
+            #     q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
+            #     q1_pred = q_prediction[0].cpu().detach().numpy().mean()
+            #     q2_pred = q_prediction[1].cpu().detach().numpy().mean()
+            #
+            # with torch.no_grad():
+            #     current_action = self._policy(batch.observations)
+            #     gt_qval = self._q_func(batch.observations, current_action, "none").detach()
+            #
+            #     current_action_adv = self._policy(batch_aug.observations).detach()
+            #
+            #
+            # self._critic_optim.zero_grad()
+            #
+            # q_tpn = self.compute_target(batch)  # Compute target for clean data
+            #
+            # loss = self.compute_critic_loss(batch, q_tpn)
+            #
+            # # Compute regularization
+            # qval_adv = self._q_func(batch.observations, current_action_adv, "none")
+            # q1_reg_loss = F.mse_loss(qval_adv[0], gt_qval[0])
+            # q2_reg_loss = F.mse_loss(qval_adv[1], gt_qval[1])
+            # critic_reg_loss = (q1_reg_loss + q2_reg_loss) / 2
+            #
+            # loss += critic_reg_coef * critic_reg_loss
+            #
+            # loss.backward()
+            # self._critic_optim.step()
+            #
+            # # Compute the difference w.r.t. the current policy applied on states
+            # q1_pred_adv_diff = (qval_adv[0] - gt_qval[0]).detach().cpu().numpy().mean()
+            # q2_pred_adv_diff = (qval_adv[1] - gt_qval[1]).detach().cpu().numpy().mean()
+            #
+            # extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
+            #               q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_coef * critic_reg_loss.item(),
+            #               epsilon)
+
             batch, batch_aug = self.do_augmentation(batch, for_critic=True, epsilon=epsilon)
 
             with torch.no_grad():
@@ -204,11 +244,7 @@ class TD3PlusBCAugImpl(TD3Impl):
                 q2_pred = q_prediction[1].cpu().detach().numpy().mean()
 
             with torch.no_grad():
-                current_action = self._policy(batch.observations)
-                gt_qval = self._q_func(batch.observations, current_action, "none").detach()
-
-                current_action_adv = self._policy(batch_aug.observations).detach()
-
+                gt_qval = self._q_func(batch.observations, batch.actions, "none").detach()
 
             self._critic_optim.zero_grad()
 
@@ -217,7 +253,7 @@ class TD3PlusBCAugImpl(TD3Impl):
             loss = self.compute_critic_loss(batch, q_tpn)
 
             # Compute regularization
-            qval_adv = self._q_func(batch.observations, current_action_adv, "none")
+            qval_adv = self._q_func(batch_aug.observations, batch.actions, "none")  # batch.actions is same as batch_aug.actions
             q1_reg_loss = F.mse_loss(qval_adv[0], gt_qval[0])
             q2_reg_loss = F.mse_loss(qval_adv[1], gt_qval[1])
             critic_reg_loss = (q1_reg_loss + q2_reg_loss) / 2
@@ -231,9 +267,15 @@ class TD3PlusBCAugImpl(TD3Impl):
             q1_pred_adv_diff = (qval_adv[0] - gt_qval[0]).detach().cpu().numpy().mean()
             q2_pred_adv_diff = (qval_adv[1] - gt_qval[1]).detach().cpu().numpy().mean()
 
-            extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
-                          q1_pred_adv_diff, q2_pred_adv_diff, critic_reg_coef * critic_reg_loss.item(),
-                          epsilon)
+            if epsilon is not None:
+                extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
+                              q1_pred_adv_diff, q2_pred_adv_diff,
+                              critic_reg_coef * critic_reg_loss.item(),
+                              epsilon)
+            else:
+                extra_logs = (q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred,
+                              q1_pred_adv_diff, q2_pred_adv_diff,
+                              critic_reg_coef * critic_reg_loss.item())
 
         else:
             q1_pred_adv_diff, q2_pred_adv_diff = 0.0, 0.0
@@ -370,6 +412,14 @@ class TD3PlusBCAugImpl(TD3Impl):
                                          optimizer=optimizer, clip=clip, use_assert=use_assert)
             batch_aug._observations = adv_x
 
+
+        elif attack_type in ['critic_src']:
+            adv_x = critic_state_attack(batch_aug._observations, batch_aug._actions,
+                                        self._policy, self._q_func,
+                                        epsilon, num_steps, step_size,
+                                        self._obs_min_norm, self._obs_max_norm,
+                                        optimizer=optimizer, clip=clip, use_assert=use_assert)
+            batch_aug._observations = adv_x
 
         elif attack_type in ['actor_mad']:
             adv_x = actor_mad_attack(batch_aug._observations,
