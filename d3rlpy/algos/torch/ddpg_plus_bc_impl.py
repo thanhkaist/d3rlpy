@@ -131,12 +131,11 @@ class DDPGPlusBCImpl(DDPGImpl):
     @train_api
     @torch_api()
     def update_critic(self, batch: TorchMiniBatch) \
-        -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         assert self._critic_optim is not None
         with torch.no_grad():
             q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
             q1_pred = q_prediction[0].cpu().detach().numpy().mean()
-            q2_pred = q_prediction[1].cpu().detach().numpy().mean()
 
         self._critic_optim.zero_grad()
 
@@ -147,7 +146,7 @@ class DDPGPlusBCImpl(DDPGImpl):
         loss.backward()
         self._critic_optim.step()
 
-        return loss.cpu().detach().numpy(), q_tpn.cpu().detach().numpy().mean(), q1_pred, q2_pred
+        return loss.cpu().detach().numpy(), q_tpn.cpu().detach().numpy().mean(), q1_pred
 
     @train_api
     @torch_api()

@@ -177,12 +177,11 @@ class DDPGPlusBC(AlgoBase):
 
         metrics = {}
 
-        critic_loss, q_target, current_q1, current_q2 = self._impl.update_critic(batch)
+        critic_loss, q_target, current_q1 = self._impl.update_critic(batch)
         metrics.update({
             "critic_loss": critic_loss,
             "q_target": q_target,
             "q1_prediction": current_q1,
-            "q2_prediction": current_q2,
         })
 
         actor_loss, main_actor_loss, bc_loss = self._impl.update_actor(batch)
