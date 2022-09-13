@@ -9,6 +9,7 @@ from .combo import COMBO
 from .cql import CQL, DiscreteCQL
 from .crr import CRR
 from .ddpg import DDPG
+from .ddpg_plus_bc import DDPGPlusBC
 from .dqn import DQN, DoubleDQN
 from .iql import IQL
 from .mopo import MOPO
@@ -37,6 +38,7 @@ __all__ = [
     "DiscreteCQLAug",
     "CRR",
     "DDPG",
+    "DDPGPlusBC",
     "DQN",
     "DoubleDQN",
     "IQL",
@@ -78,6 +80,7 @@ CONTINUOUS_ALGORITHMS: Dict[str, Type[AlgoBase]] = {
     "cql_aug": CQLAug,
     "crr": CRR,
     "ddpg": DDPG,
+    "ddpg_plus_bc": DDPGPlusBC,
     "iql": IQL,
     "mopo": MOPO,
     "plas": PLASWithPerturbation,
