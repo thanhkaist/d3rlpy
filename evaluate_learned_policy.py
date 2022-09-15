@@ -3,6 +3,7 @@ import gym
 import time
 import copy
 import os
+import json
 
 import d3rlpy
 
@@ -221,6 +222,12 @@ def main(args):
     data = [[MEAN([norm_scores[0, 0]]), np.std(norm_scores, axis=2).squeeze(),
              MEDIAN([norm_scores[0, 0]]), IQM([norm_scores[0, 0]]), OG([norm_scores[0, 0]]),
              n_seeds]]
+
+    score_dict = {
+        "env_name": args.dataset,
+        "n_seeds": n_seeds,
+        "clean": norm_scores[0, 0].tolist()
+    }
     summary = pd.DataFrame(data, columns=columns, index=["clean"])
     for n in range(N):
         for r in range(R):
@@ -244,13 +251,22 @@ def main(args):
             _summary = pd.DataFrame(data, columns=columns, index=index)
             summary = summary.append(_summary)
 
+            score_dict.update({
+                str(args.attack_type_list[n]) + '-' + str(args.attack_epsilon_list[r]): norm_score_attacks[n, r].tolist()
+            })
+
     writer.close()
     pickle_filename = writer.logfile[:-3] + 'pkl'
     summary.to_pickle(pickle_filename)
+    json_filename = writer.logfile[:-3] + 'json'
+
+    with open(json_filename, 'w') as fp:
+        json.dump(score_dict, fp, sort_keys=True)
 
     # Always maintain latest files
     copy_file(src=writer.logfile, des=writer.logfile[:-18] + 'latest.txt')
     copy_file(src=pickle_filename, des=pickle_filename[:-18] + 'latest.pkl')
+    copy_file(src=json_filename, des=writer.logfile[:-18] + 'latest.json')
 
 
 
