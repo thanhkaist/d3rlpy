@@ -131,6 +131,7 @@ class SAC(AlgoBase):
         n_frames: int = 1,
         n_steps: int = 1,
         gamma: float = 0.99,
+        replacement: bool = True,
         tau: float = 0.005,
         n_critics: int = 2,
         initial_temperature: float = 1.0,
@@ -139,6 +140,7 @@ class SAC(AlgoBase):
         action_scaler: ActionScalerArg = None,
         reward_scaler: RewardScalerArg = None,
         impl: Optional[SACImpl] = None,
+        env_name: str = '',
         **kwargs: Any
     ):
         super().__init__(
@@ -160,11 +162,13 @@ class SAC(AlgoBase):
         self._actor_encoder_factory = check_encoder(actor_encoder_factory)
         self._critic_encoder_factory = check_encoder(critic_encoder_factory)
         self._q_func_factory = check_q_func(q_func_factory)
+        self._replacement = replacement
         self._tau = tau
         self._n_critics = n_critics
         self._initial_temperature = initial_temperature
         self._use_gpu = check_use_gpu(use_gpu)
         self._impl = impl
+        self._env_name = env_name
 
     def _create_impl(
         self, observation_shape: Sequence[int], action_size: int
@@ -189,6 +193,7 @@ class SAC(AlgoBase):
             scaler=self._scaler,
             action_scaler=self._action_scaler,
             reward_scaler=self._reward_scaler,
+            env_name=self._env_name,
         )
         self._impl.build()
 
@@ -199,17 +204,18 @@ class SAC(AlgoBase):
 
         # lagrangian parameter update for SAC temperature
         if self._temp_learning_rate > 0:
-            temp_loss, temp = self._impl.update_temp(batch)
-            metrics.update({"temp_loss": temp_loss, "temp": temp})
+            summary_logs = self._impl.update_temp(batch)
+            metrics.update(summary_logs)
 
-        critic_loss = self._impl.update_critic(batch)
-        metrics.update({"critic_loss": critic_loss})
+        summary_logs = self._impl.update_critic(batch)
+        metrics.update(summary_logs)
 
-        actor_loss = self._impl.update_actor(batch)
-        metrics.update({"actor_loss": actor_loss})
+        summary_logs = self._impl.update_actor(batch)
+        metrics.update(summary_logs)
 
         self._impl.update_critic_target()
-        self._impl.update_actor_target()
+
+        self._impl.total_update_steps += 1
 
         return metrics
 

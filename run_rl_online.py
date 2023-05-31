@@ -17,106 +17,6 @@ def set_name_wandb_project(dataset):
     return project_name
 
 
-ENV_NAME_MAPPING = {
-    'walker2d-random-v2': 'w2d2-r',
-    'walker2d-medium-v2': 'w2d2-m',
-    'walker2d-medium-replay-v2': 'w2d2-m-re',
-    'walker2d-medium-expert-v2': 'w2d2-m-e',
-    'walker2d-expert-v2': 'w2d2-e',
-    'hopper-random-v2': 'hop2-r',
-    'hopper-medium-v2': 'hop2-m',
-    'hopper-medium-replay-v2': 'hop2-m-re',
-    'hopper-medium-expert-v2': 'hop2-m-e',
-    'hopper-expert-v2': 'hop2-e',
-    'halfcheetah-random-v2': 'che2-r',
-    'halfcheetah-medium-v2': 'che2-m',
-    'halfcheetah-medium-replay-v2': 'che2-m-re',
-    'halfcheetah-medium-expert-v2': 'che2-m-e',
-    'halfcheetah-expert-v2': 'che2-e',
-    'ant-random-v2': 'ant-r',
-    'ant-medium-v2': 'ant-m',
-    'ant-medium-replay-v2': 'ant-m-re',
-    'ant-medium-expert-v2': 'ant-m-e',
-    'ant-expert-v2': 'ant-e',
-}
-
-N_SEEDS = 5
-def process_checkpoint(args):
-    if os.path.isfile(args.ckpt):
-        print(f"[INFO] Preparing to load checkpoint: {args.ckpt}")
-        return args.ckpt
-
-    elif os.path.isdir(args.ckpt):
-        entries = os.listdir(args.ckpt)
-        entries.sort()
-
-        print("\tFound %d experiments." % (len(entries)))
-        ckpt_list = []
-        for entry in entries:
-            ckpt_file = os.path.join(args.ckpt, entry, args.ckpt_steps)
-            if not os.path.isfile(ckpt_file):
-                print("\tCannot find checkpoint {} in {}".format(args.ckpt_steps, ckpt_file))
-            else:
-                ckpt_list.append(ckpt_file)
-        assert 1 <= args.seed <= N_SEEDS and len(ckpt_list) == N_SEEDS
-        print(f"[INFO] Preparing to load checkpoint: {ckpt_list[args.seed - 1]}")
-        return ckpt_list[args.seed - 1]
-
-    else:
-        print("[INFO] Training from scratch.")
-        return None
-
-def load_buffer_from_checkpoint(args):
-    from d3rlpy.dataset import MDPDataset
-    assert os.path.isfile(args.ckpt)
-    ckpt_dir = args.ckpt[:args.ckpt.rfind('/')]
-    ckpt_step = int(args.ckpt_steps.split('.')[0].split('_')[-1])
-    entries = glob.glob(os.path.join(ckpt_dir, "*.h5"))
-    entries.sort()
-    buffer_path = entries[-1]
-    buffer_at_step = int(buffer_path.split('/')[-1].split('_')[-1][:-8])
-    total_of_samples = buffer_at_step
-
-    with h5py.File(buffer_path, 'r') as f:
-        observations = f['observations'][()]
-        actions = f['actions'][()]
-        rewards = f['rewards'][()]
-        terminals = f['terminals'][()]
-        discrete_action = f['discrete_action'][()]
-
-        # for backward compatibility
-        if 'episode_terminals' in f:
-            episode_terminals = f['episode_terminals'][()]
-        else:
-            episode_terminals = None
-
-    dataset = MDPDataset(
-        observations=observations,
-        actions=actions,
-        rewards=rewards,
-        terminals=terminals,
-        episode_terminals=episode_terminals,
-        discrete_action=discrete_action,
-    )
-    print(f"[INFO] Loaded previous buffer (n_episodes={dataset.size()}): {buffer_path}")
-
-    stats_filename = copy.copy(args.ckpt)
-    stats_filename = stats_filename.replace('model_', 'stats_')
-    stats_filename = stats_filename.replace('.pt', '.npz')
-    if os.path.isfile(stats_filename):
-        data = np.load(stats_filename)
-        mean, std = data['mean'], data['std']
-    else:
-        raise ValueError("Cannot find statistics of buffer.")
-
-    buffer_state = dict(
-        total_samples=total_of_samples,
-        obs_mean=mean, obs_std=std,
-        obs_sum=mean * total_of_samples,
-        obs_sum_sq=(std ** 2 + mean ** 2) * total_of_samples
-    )
-    return dataset.episodes, buffer_state
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--algo', type=str, default='TD3', choices=['TD3', 'SAC'])
@@ -172,9 +72,6 @@ def main():
 
     args = parser.parse_args()
 
-    if args.finetune:
-        args.ckpt = process_checkpoint(args)
-
     env = gym.make(args.dataset)
     eval_env = gym.make(args.dataset)
 
@@ -191,45 +88,14 @@ def main():
     if args.algo == 'TD3':
         raise NotImplementedError
     elif args.algo == 'SAC':
-        if args.loss_type == "mad_loss":
-            adv_params = dict(
-                epsilon=args.epsilon,
-                num_steps=args.num_steps,
-                step_size=args.epsilon / args.num_steps,
-                attack_type=args.attack_type,
-                actor_reg=args.actor_reg,
-            )
-        else:
-            adv_params = {}
 
-        vq_decay_scheduler = dict(
-            vq_decay_scheduler=args.vq_decay_scheduler,
-            vq_decay_start_val=args.vq_decay_start_val, vq_decay_end_val=args.vq_decay_end_val,
-            vq_decay_start_step=args.vq_decay_start_step, vq_decay_end_step=args.vq_decay_end_step,
+        sac = d3rlpy.algos.SAC(
+            batch_size=256,
+            use_gpu=args.gpu,
+            scaler=scaler,
+            replacement=not args.no_replacement,
+            env_name=args.dataset,
         )
-        sac = d3rlpy.algos.SAC(batch_size=256,
-                               use_gpu=args.gpu,
-                               scaler=scaler,
-                               replacement=not args.no_replacement,
-                               env_name=args.dataset,
-                               use_vq_in=args.use_vq_in,
-                               codebook_update_type=args.codebook_update_type,
-                               n_steps_allow_update_cb=args.n_steps_allow_update_cb,
-                               n_steps_start_at=args.n_steps_start_at,
-                               number_embeddings=args.n_embeddings,
-                               embedding_dim=args.embedding_dim,
-                               decay=args.vq_decay,
-                               vq_decay_scheduler=vq_decay_scheduler,
-                               vq_loss_weight=args.vq_loss_weight,
-                               autoscale_vq_loss=args.autoscale_vq_loss,
-                               scale_factor=args.scale_factor,
-                               loss_type=args.loss_type,
-                               adv_params=adv_params,
-                               )
-
-        previous_buffer, buffer_state = None, None
-        if args.finetune and args.load_buffer:
-            previous_buffer, buffer_state = load_buffer_from_checkpoint(args)
 
         buffer_size = 1000000
         if args.n_steps < buffer_size:
@@ -237,13 +103,7 @@ def main():
 
         # replay buffer for experience replay
         buffer = d3rlpy.online.buffers.ReplayBuffer(maxlen=buffer_size, env=env,
-                                                    compute_statistical=args.standardization, episodes=previous_buffer)
-        if args.finetune and buffer_state is not None:
-            buffer._total_samples = buffer_state["total_samples"]
-            buffer._obs_sum = buffer_state["obs_sum"]
-            buffer._obs_sum_sq = buffer_state["obs_sum_sq"]
-            buffer._obs_mean = buffer_state["obs_mean"]
-            buffer._obs_std = buffer_state["obs_std"]
+                                                    compute_statistical=args.standardization)
 
         # start training
         sac.fit_online(
@@ -263,8 +123,6 @@ def main():
             eval_interval=args.eval_interval,
             standardization=args.standardization,
             stats_update_interval=args.stats_update_interval,
-            finetune=args.finetune,
-            checkpoint=args.ckpt,
             backup_file=True,
         )
 

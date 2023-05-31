@@ -1,6 +1,6 @@
 import copy
 import math
-from typing import Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple, Any, Dict
 
 import numpy as np
 import torch
@@ -62,6 +62,7 @@ class SACImpl(DDPGBaseImpl):
         scaler: Optional[Scaler],
         action_scaler: Optional[ActionScaler],
         reward_scaler: Optional[RewardScaler],
+        env_name: str = '',
     ):
         super().__init__(
             observation_shape=observation_shape,
@@ -89,6 +90,10 @@ class SACImpl(DDPGBaseImpl):
         self._log_temp = None
         self._temp_optim = None
 
+        self.env_name = env_name
+
+        self.total_update_steps = 0
+
     def build(self) -> None:
         self._build_temperature()
         super().build()
@@ -111,23 +116,92 @@ class SACImpl(DDPGBaseImpl):
             self._log_temp.parameters(), lr=self._temp_learning_rate
         )
 
-    def compute_actor_loss(self, batch: TorchMiniBatch) -> torch.Tensor:
+    @train_api
+    @torch_api()
+    def update_critic(self, batch: TorchMiniBatch) -> Dict:
+        assert self._critic_optim is not None
+        summary_logs = {}
+
+        with torch.no_grad():
+            q_prediction = self._q_func(batch.observations, batch.actions, reduction="none")
+            q1_pred = q_prediction[0].cpu().detach().numpy().mean()
+            q2_pred = q_prediction[1].cpu().detach().numpy().mean()
+
+        self._critic_optim.zero_grad()
+
+        q_tpn = self.compute_target(batch)
+
+        loss = self.compute_critic_loss(batch, q_tpn)
+
+        loss.backward()
+        self._critic_optim.step()
+
+        summary_logs.update({
+            "critic_total_loss": loss.cpu().detach().numpy(),
+            "q_target": q_tpn.cpu().detach().numpy().mean(),
+            "q1_prediction": q1_pred,
+            "q2_prediction": q2_pred,
+        })
+
+        return summary_logs
+
+    def compute_critic_loss(
+        self, batch: TorchMiniBatch, q_tpn: torch.Tensor
+    ) -> torch.Tensor:
+        assert self._q_func is not None
+        return self._q_func.compute_error(
+            observations=batch.observations,
+            actions=batch.actions,
+            rewards=batch.rewards,
+            target=q_tpn,
+            terminals=batch.terminals,
+            gamma=self._gamma ** batch.n_steps,
+        )
+
+    @train_api
+    @torch_api()
+    def update_actor(self, batch: TorchMiniBatch) -> Dict:
+        assert self._q_func is not None
+        assert self._actor_optim is not None
+        summary_logs = {}
+
+        # Q function should be inference mode for stability
+        self._q_func.eval()
+
+        self._actor_optim.zero_grad()
+
+        loss, actor_q_loss, entropy = self.compute_actor_loss(batch)
+
+        loss.backward()
+        self._actor_optim.step()
+
+        summary_logs.update({
+            "actor_total_loss": loss.cpu().detach().numpy(),
+            "actor_q_loss": actor_q_loss.cpu().detach().numpy().mean(),
+            "entropy": entropy.cpu().detach().numpy().mean(),
+        })
+
+        return summary_logs
+
+    def compute_actor_loss(self, batch: TorchMiniBatch) -> Any:
         assert self._policy is not None
         assert self._log_temp is not None
         assert self._q_func is not None
         action, log_prob = self._policy.sample_with_log_prob(batch.observations)
-        entropy = self._log_temp().exp() * log_prob
+        entropy = self._log_temp().exp().detach() * log_prob
         q_t = self._q_func(batch.observations, action, "min")
-        return (entropy - q_t).mean()
+        loss = (entropy - q_t).mean()
+        return loss, -q_t, entropy
 
     @train_api
     @torch_api()
     def update_temp(
         self, batch: TorchMiniBatch
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Dict:
         assert self._temp_optim is not None
         assert self._policy is not None
         assert self._log_temp is not None
+        summary_logs = {}
 
         self._temp_optim.zero_grad()
 
@@ -143,7 +217,11 @@ class SACImpl(DDPGBaseImpl):
         # current temperature value
         cur_temp = self._log_temp().exp().cpu().detach().numpy()[0][0]
 
-        return loss.cpu().detach().numpy(), cur_temp
+        summary_logs.update({
+            "temp_loss": loss.cpu().detach().numpy(),
+            "temp": cur_temp,
+        })
+        return summary_logs
 
     def compute_target(self, batch: TorchMiniBatch) -> torch.Tensor:
         assert self._policy is not None
