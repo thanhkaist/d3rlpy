@@ -135,6 +135,7 @@ class LearnableBase:
     _n_frames: int
     _n_steps: int
     _gamma: float
+    _replacement: bool
     _scaler: Optional[Scaler]
     _action_scaler: Optional[ActionScaler]
     _reward_scaler: Optional[RewardScaler]
@@ -152,6 +153,7 @@ class LearnableBase:
         n_frames: int,
         n_steps: int,
         gamma: float,
+        replacement: bool = True,
         scaler: ScalerArg = None,
         action_scaler: ActionScalerArg = None,
         reward_scaler: RewardScalerArg = None,
@@ -163,6 +165,7 @@ class LearnableBase:
         self._n_frames = n_frames
         self._n_steps = n_steps
         self._gamma = gamma
+        self._replacement = replacement
         self._scaler = check_scaler(scaler)
         self._action_scaler = check_action_scaler(action_scaler)
         self._reward_scaler = check_reward_scaler(reward_scaler)
@@ -915,6 +918,20 @@ class LearnableBase:
     @gamma.setter
     def gamma(self, gamma: float) -> None:
         self._gamma = gamma
+
+    @property
+    def replacement(self) -> float:
+        """Discount factor.
+
+        Returns:
+            float: discount factor.
+
+        """
+        return self._replacement
+
+    @replacement.setter
+    def replacement(self, replacement: bool) -> None:
+        self._replacement = replacement
 
     @property
     def scaler(self) -> Optional[Scaler]:
