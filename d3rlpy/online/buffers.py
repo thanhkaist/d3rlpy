@@ -1,5 +1,5 @@
 from abc import ABCMeta, abstractmethod
-from typing import List, Optional, Sequence
+from typing import List, Optional, Sequence, Tuple
 
 import gym
 import numpy as np
@@ -71,6 +71,7 @@ class _Buffer(metaclass=ABCMeta):
         n_frames: int = 1,
         n_steps: int = 1,
         gamma: float = 0.99,
+        replacement: bool = True,
     ) -> TransitionMiniBatch:
         """Returns sampled mini-batch of transitions.
 
@@ -203,6 +204,9 @@ class Buffer(_Buffer):
 
         """
 
+    @abstractmethod
+    def get_statistical(self, ) -> Tuple[np.ndarray, np.ndarray]:
+        """Get mean and std of observations in replay buffer."""
 
 class BasicSampleMixin:
 
@@ -214,8 +218,9 @@ class BasicSampleMixin:
         n_frames: int = 1,
         n_steps: int = 1,
         gamma: float = 0.99,
+        replacement: bool = True,
     ) -> TransitionMiniBatch:
-        indices = np.random.choice(len(self._transitions), batch_size)
+        indices = np.random.choice(len(self._transitions), batch_size, replace=replacement)
         transitions = [self._transitions[index] for index in indices]
         batch = TransitionMiniBatch(transitions, n_frames, n_steps, gamma)
         return batch
@@ -243,6 +248,8 @@ class ReplayBuffer(BasicSampleMixin, Buffer):
         maxlen: int,
         env: Optional[gym.Env] = None,
         episodes: Optional[List[Episode]] = None,
+        compute_statistical: Optional[bool] = False,
+        eps: float = 1e-2
     ):
         super().__init__(maxlen, env, episodes)
         self._prev_observation = None
@@ -250,6 +257,18 @@ class ReplayBuffer(BasicSampleMixin, Buffer):
         self._prev_reward = 0.0
         self._prev_terminal = 0.0
         self._prev_transition = None
+
+        self.maxlen = maxlen
+        self.compute_statistical = compute_statistical
+        if self.compute_statistical:
+            self._obs_sum = np.zeros((self._observation_shape[0]), dtype=np.float32)
+            self._obs_sum_sq = np.zeros((self._observation_shape[0]), dtype=np.float32)
+            self.eps = np.ones((self._observation_shape[0]), dtype=np.float32) * eps
+
+            self._total_samples = 0
+
+            self._obs_mean = np.zeros((self._observation_shape[0]), dtype=np.float32)
+            self._obs_std = np.ones((self._observation_shape[0]), dtype=np.float32)
 
     def append(
         self,
@@ -272,6 +291,12 @@ class ReplayBuffer(BasicSampleMixin, Buffer):
             assert action < self._action_size
         # not allow terminal=True and clip_episode=False
         assert not (terminal and not clip_episode)
+
+        if self.compute_statistical:
+            # [tung] Store only observation to calculate statistic
+            self._obs_sum += observation
+            self._obs_sum_sq += observation ** 2
+            self._total_samples += 1
 
         # create Transition object
         if self._prev_observation is not None:
@@ -306,6 +331,14 @@ class ReplayBuffer(BasicSampleMixin, Buffer):
                 # add the terminal state
                 self._add_last_step()
             self.clip_episode()
+
+    def get_statistical(self):
+        # [tung] Re-calculate statistic of buffer whenever a new sample is added
+        self._obs_mean = self._obs_sum / self._total_samples
+        std = self._obs_sum_sq / self._total_samples - self._obs_mean ** 2
+        std = np.maximum(self.eps, std)
+        self._obs_std = np.sqrt(std)
+        return self._obs_mean.copy(), self._obs_std.copy()
 
     def clip_episode(self) -> None:
         self._prev_observation = None

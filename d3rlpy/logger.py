@@ -50,12 +50,15 @@ class D3RLPyLogger:
         verbose: bool = True,
         with_timestamp: bool = True,
         allow_overwrite: bool = False,
-        wandb_project: str = "BASE"
+        wandb_project: str = "BASE",
+        use_wandb: bool = True,
+        entity: str = "tunglm",
     ):
         self._save_metrics = save_metrics
         self._verbose = verbose
 
         self.job_type = experiment_name
+        self.use_wandb = use_wandb
 
         # add timestamp to prevent unintentional overwrites
         while True:
@@ -82,7 +85,8 @@ class D3RLPyLogger:
                 break
 
         # Add wandb
-        wandb.init(name=self._experiment_name,project=wandb_project, entity="aimrl",job_type=self.job_type) #config=args, 
+        if self.use_wandb:
+            wandb.init(name=self._experiment_name,project=wandb_project, entity=entity,job_type=self.job_type) #config=args,
 
 
         self._metrics_buffer = {}
@@ -126,7 +130,8 @@ class D3RLPyLogger:
 
     def commit(self, epoch: int, step: int) -> Dict[str, float]:
         metrics = {}
-        wandb.log({f"epoch":epoch},step=step)
+        if self.use_wandb:
+            wandb.log({f"epoch":epoch},step=step)
         for name, buffer in self._metrics_buffer.items():
 
             metric = sum(buffer) / len(buffer)
@@ -140,7 +145,8 @@ class D3RLPyLogger:
                     self._writer.add_scalar(f"metrics/{name}", metric, epoch)
 
             metrics[name] = metric
-            wandb.log({f"metrics/{name}":metric},step=step)
+            if self.use_wandb:
+                wandb.log({f"metrics/{name}":metric},step=step)
 
         if self._verbose:
             LOG.info(
@@ -159,8 +165,10 @@ class D3RLPyLogger:
             )
         if self._params:
             for k,v in self._params.items():
-               wandb.config.update({f"{k}":v})
-        wandb.save()
+                if self.use_wandb:
+                    wandb.config.update({f"{k}":v})
+        if self.use_wandb:
+            wandb.save()
         # initialize metrics buffer
         self._metrics_buffer = {}
         return metrics

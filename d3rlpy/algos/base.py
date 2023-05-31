@@ -205,7 +205,14 @@ class AlgoBase(LearnableBase):
         show_progress: bool = True,
         tensorboard_dir: Optional[str] = None,
         timelimit_aware: bool = True,
+        wandb_project: str = "BASE",
+        use_wandb: bool = True,
+        entity: str = "tunglm",
+        backup_file: bool = False,
+        eval_interval: int = 1,
         callback: Optional[Callable[[AlgoProtocol, int, int], None]] = None,
+        standardization: bool = False,
+        stats_update_interval: int = 1000,
     ) -> None:
         """Start training loop of online deep reinforcement learning.
 
@@ -270,6 +277,13 @@ class AlgoBase(LearnableBase):
             tensorboard_dir=tensorboard_dir,
             timelimit_aware=timelimit_aware,
             callback=callback,
+            wandb_project=wandb_project,
+            use_wandb=use_wandb,
+            entity=entity,
+            backup_file=backup_file,
+            eval_interval=eval_interval,
+            standardization=standardization,
+            stats_update_interval=stats_update_interval,
         )
 
     def collect(

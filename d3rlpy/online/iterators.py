@@ -1,5 +1,7 @@
 from typing import Any, Callable, Dict, List, Optional, Union
 
+import os
+import shutil
 import gym
 import numpy as np
 from tqdm.auto import trange
@@ -65,6 +67,10 @@ class AlgoProtocol(Protocol):
         ...
 
     @property
+    def replacement(self) -> bool:
+        ...
+
+    @property
     def impl(self) -> Optional[Any]:
         ...
 
@@ -76,8 +82,9 @@ class AlgoProtocol(Protocol):
 def _setup_algo(algo: AlgoProtocol, env: gym.Env) -> None:
     # initialize scaler
     if algo.scaler:
-        LOG.debug("Fitting scaler...", scler=algo.scaler.get_type())
-        algo.scaler.fit_with_env(env)
+        if algo.scaler._mean is None and algo.scaler._std is None:
+            LOG.debug("Fitting scaler...", scler=algo.scaler.get_type())
+            algo.scaler.fit_with_env(env)
 
     # initialize action scaler
     if algo.action_scaler:
@@ -117,7 +124,14 @@ def train_single_env(
     show_progress: bool = True,
     tensorboard_dir: Optional[str] = None,
     timelimit_aware: bool = True,
+    wandb_project: str="BASE",
+    use_wandb: bool = True,
+    entity: str = "tunglm",
+    backup_file: bool = False,
+    eval_interval: int = 1,
     callback: Optional[Callable[[AlgoProtocol, int, int], None]] = None,
+    standardization: bool = False,
+    stats_update_interval: int = 1000,
 ) -> None:
     """Start training loop of online deep reinforcement learning.
 
@@ -164,7 +178,21 @@ def train_single_env(
         verbose=verbose,
         tensorboard_dir=tensorboard_dir,
         with_timestamp=with_timestamp,
+        wandb_project=wandb_project,
+        use_wandb=use_wandb,
+        entity=entity
     )
+
+    if backup_file:
+        source_code_backup = os.path.join(logger.logdir, "source_codes")
+        os.mkdir(source_code_backup)
+        shutil.copytree("d3rlpy", os.path.join(source_code_backup, "d3rlpy"),
+                        ignore=shutil.ignore_patterns('*.pyc', '*.so', '*.cpp', '*.h', '*.pyi',
+                                                      '*.pxd', '*.typed', '__pycache__'))
+        for file in os.listdir("."):
+            if file.endswith(".py") and not file.endswith(".pyc"):
+                shutil.copy(file, os.path.join(source_code_backup, file))
+
     algo.set_active_logger(logger)
 
     # initialize algorithm parameters
@@ -190,9 +218,11 @@ def train_single_env(
     else:
         eval_scorer = None
 
+
     # start training loop
     observation = env.reset()
     rollout_return = 0.0
+    episode_length = 0
     for total_step in xrange(1, n_steps + 1):
         with logger.measure_time("step"):
             # stack observation if necessary
@@ -217,6 +247,7 @@ def train_single_env(
             with logger.measure_time("environment_step"):
                 next_observation, reward, terminal, info = env.step(action)
                 rollout_return += reward
+                episode_length += 1
 
             # special case for TimeLimit wrapper
             if timelimit_aware and "TimeLimit.truncated" in info:
@@ -238,7 +269,9 @@ def train_single_env(
             if clip_episode:
                 observation = env.reset()
                 logger.add_metric("rollout_return", rollout_return)
+                logger.add_metric("episode_length", episode_length)
                 rollout_return = 0.0
+                episode_length = 0
                 # for image observation
                 if is_image:
                     stacked_frame.clear()
@@ -257,10 +290,15 @@ def train_single_env(
                             n_frames=algo.n_frames,
                             n_steps=algo.n_steps,
                             gamma=algo.gamma,
+                            replacement=algo.replacement
                         )
 
                     # update parameters
                     with logger.measure_time("algorithm_update"):
+                        # Re-assign newly updated mean & std every 1000 steps (maximum length of an episode)
+                        if total_step % stats_update_interval == 0 and standardization:
+                            algo._impl.scaler._mean, algo._impl.scaler._std = buffer.get_statistical()
+
                         loss = algo.update(batch)
 
                     # record metrics
@@ -271,16 +309,30 @@ def train_single_env(
             if callback:
                 callback(algo, epoch, total_step)
 
-        if epoch > 0 and total_step % n_steps_per_epoch == 0:
+        if epoch > 0 and epoch % eval_interval == 0 and total_step % n_steps_per_epoch == 0:
             # evaluation
             if eval_scorer:
-                logger.add_metric("evaluation", eval_scorer(algo))
+                test_score = eval_scorer(algo)
+                if isinstance(test_score, tuple) and len(test_score) > 1:
+                    unnorm_score, norm_score = test_score
+                    logger.add_metric("environment", unnorm_score)
+                    logger.add_metric("environment_normalized", norm_score)
+                else:
+                    logger.add_metric("environment", test_score)
 
-            if epoch % save_interval == 0:
-                logger.save_model(total_step, algo)
+        if epoch > 0 and epoch % save_interval == 0 and total_step % n_steps_per_epoch == 0:
+            logger.save_model(total_step, algo)
+            if algo._impl.scaler is not None:
+                stats_path = os.path.join(logger._logdir, f"stats_{total_step}.npz")
+                np.savez(stats_path, mean=algo._impl.scaler._mean, std=algo._impl.scaler._std)
 
+        if total_step % n_steps_per_epoch == 0:  # Commit every epoch
             # save metrics
             logger.commit(epoch, total_step)
+        if total_step % buffer.maxlen == 0 or total_step == n_steps:
+            dataset = buffer.to_mdp_dataset()
+            # save MDPDataset
+            dataset.dump(os.path.join(logger._logdir, "replay_dataset_at_{}steps.h5".format(total_step)))
 
     # clip the last episode
     buffer.clip_episode()
